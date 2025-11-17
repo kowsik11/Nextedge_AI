@@ -75,7 +75,7 @@ const formatRelativeTime = (iso?: string | null) => {
 };
 
 const Home = () => {
-  const { user, session, loading } = useSupabaseAuth();
+  const { user, session, loading, signOut } = useSupabaseAuth();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const userId = user?.id;
@@ -383,6 +383,39 @@ const Home = () => {
 
   const handleOpenTests = () => {
     navigate("/tests");
+  };
+
+  const handleSignOut = async () => {
+    try {
+      const uid = user?.id;
+      if (uid) {
+        // Best-effort backend disconnects; ignore failures
+        await fetch("/api/google/disconnect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: uid }),
+        }).catch(() => {});
+        await fetch("/api/hubspot/disconnect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: uid }),
+        }).catch(() => {});
+      }
+    } finally {
+      await signOut();
+      // Reset local UI state
+      setGmailState("disconnected");
+      setHubspotState("disconnected");
+      setGmailStatus({
+        connected: false,
+        counts: { new: 0, processed: 0, error: 0 },
+        baseline_ready: false,
+      });
+      setHubspotStatus(null);
+      setShowInbox(false);
+      setShowInsights(false);
+      navigate("/");
+    }
   };
 
   if (loading) {
@@ -772,6 +805,14 @@ const Home = () => {
       )}
       {!showInbox && (
         <div className="fixed bottom-6 left-6 z-50">
+          <Button
+            variant="hero-outline"
+            size="lg"
+            className="mb-3 shadow-xl"
+            onClick={handleSignOut}
+          >
+            Sign Out
+          </Button>
           <Button
             variant="hero"
             size="lg"
