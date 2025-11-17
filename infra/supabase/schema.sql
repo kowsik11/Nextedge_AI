@@ -41,3 +41,21 @@ create table if not exists gmail_messages (
 );
 
 create index if not exists gmail_messages_user_status_idx on gmail_messages (user_id, status, received_at desc);
+
+-- OAuth connection store keyed by Supabase user id + provider (gmail, hubspot, etc.).
+create table if not exists oauth_connections (
+  user_id text not null,
+  provider text not null,
+  access_token text,
+  refresh_token text,
+  expires_at timestamptz,
+  scope text[],
+  email text,
+  external_user_id text,
+  metadata jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (user_id, provider)
+);
+
+create index if not exists oauth_connections_provider_idx on oauth_connections (provider);

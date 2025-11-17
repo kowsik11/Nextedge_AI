@@ -30,6 +30,11 @@ class Settings(BaseSettings):
   hubspot_auth_base: AnyHttpUrl = Field("https://app.hubspot.com/oauth", alias="HUBSPOT_AUTH_BASE")
   hubspot_api_base: AnyHttpUrl = Field("https://api.hubapi.com", alias="HUBSPOT_API_BASE")
 
+  supabase_url: AnyHttpUrl = Field(..., alias="SUPABASE_URL")
+  supabase_anon_key: str = Field(..., alias="SUPABASE_ANON_KEY")
+  supabase_service_role_key: str = Field(..., alias="SUPABASE_SERVICE_ROLE_KEY")
+  supabase_jwks_url: AnyHttpUrl | None = Field(None, alias="SUPABASE_JWKS_URL")
+
   model_config = SettingsConfigDict(env_file=ENV_PATH, env_file_encoding="utf-8", extra="ignore")
 
   @property
@@ -39,6 +44,12 @@ class Settings(BaseSettings):
   @property
   def gemini_api_keys(self) -> List[str]:
     return [key.strip() for key in self.gemini_api_keys_raw.replace(",", " ").split() if key.strip()]
+
+  @property
+  def supabase_keys_endpoint(self) -> AnyHttpUrl:
+    if self.supabase_jwks_url:
+      return self.supabase_jwks_url
+    return AnyHttpUrl(f"{str(self.supabase_url).rstrip('/')}/auth/v1/keys")  # type: ignore[arg-type]
 
 
 settings = Settings()  # type: ignore[arg-type]

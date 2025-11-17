@@ -1,128 +1,25 @@
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac
 import logging
-import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 import httpx
 from fastapi import HTTPException
 
 from ..config import settings
-from ..storage.hubspot_token_store import hubspot_token_store
 from .planner import CrmUpsertPlan
+from .hubspot_oauth import get_hubspot_token
 
 logger = logging.getLogger(__name__)
 
 
-class HubSpotOAuthManager:
-  STATE_TTL_SECONDS = 600
-
-  def sign_state(self, user_id: str) -> str:
-    timestamp = str(int(time.time()))
-    payload = f"{user_id}:{timestamp}"
-    signature = hmac.new(
-      settings.hubspot_client_secret.encode("utf-8"),
-      payload.encode("utf-8"),
-      hashlib.sha256,
-    ).hexdigest()
-    token = f"{payload}:{signature}"
-    return base64.urlsafe_b64encode(token.encode("utf-8")).decode("utf-8")
-
-  def verify_state(self, state: str) -> str:
-    try:
-      decoded = base64.urlsafe_b64decode(state.encode("utf-8")).decode("utf-8")
-      user_id, timestamp, signature = decoded.split(":")
-    except Exception as exc:
-      raise HTTPException(status_code=400, detail="Invalid state parameter") from exc
-
-    payload = f"{user_id}:{timestamp}"
-    expected_sig = hmac.new(
-      settings.hubspot_client_secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
-    ).hexdigest()
-    if not hmac.compare_digest(signature, expected_sig):
-      raise HTTPException(status_code=400, detail="Invalid state signature")
-
-    if time.time() - int(timestamp) > self.STATE_TTL_SECONDS:
-      raise HTTPException(status_code=400, detail="State expired")
-
-    return user_id
-
-  def exchange_code(self, user_id: str, code: str) -> Dict[str, Any]:
-    token_url = f"{str(settings.hubspot_api_base).rstrip('/')}/oauth/v1/token"
-    data = {
-      "grant_type": "authorization_code",
-      "client_id": settings.hubspot_client_id,
-      "client_secret": settings.hubspot_client_secret,
-      "redirect_uri": str(settings.hubspot_redirect_uri),
-      "code": code,
-    }
-
-    with httpx.Client(timeout=30) as client:
-      response = client.post(token_url, data=data)
-    if response.status_code != 200:
-      raise HTTPException(status_code=400, detail=f"HubSpot code exchange failed: {response.text}")
-
-    payload = response.json()
-    return self._persist_tokens(user_id, payload)
-
-  def refresh_access_token(self, user_id: str, record: Dict[str, Any]) -> Dict[str, Any]:
-    token_url = f"{str(settings.hubspot_api_base).rstrip('/')}/oauth/v1/token"
-    data = {
-      "grant_type": "refresh_token",
-      "client_id": settings.hubspot_client_id,
-      "client_secret": settings.hubspot_client_secret,
-      "refresh_token": record["refresh_token"],
-    }
-    with httpx.Client(timeout=30) as client:
-      response = client.post(token_url, data=data)
-    if response.status_code != 200:
-      raise HTTPException(status_code=400, detail=f"HubSpot token refresh failed: {response.text}")
-
-    payload = response.json()
-    payload["refresh_token"] = record["refresh_token"]
-    return self._persist_tokens(user_id, payload)
-
-  def _persist_tokens(self, user_id: str, token_json: Dict[str, Any]) -> Dict[str, Any]:
-    expires_in = int(token_json.get("expires_in", 3600))
-    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=expires_in - 60)).isoformat()
-    stored = {
-      "access_token": token_json["access_token"],
-      "refresh_token": token_json.get("refresh_token"),
-      "expires_at": expires_at,
-      "user_email": token_json.get("user", {}).get("email"),
-      "portal_id": token_json.get("hub_id"),
-    }
-    if not stored["refresh_token"]:
-      raise HTTPException(status_code=400, detail="HubSpot did not return refresh_token")
-
-    hubspot_token_store.save(user_id, stored)
-    return stored
-
-  def get_connection(self, user_id: str) -> Optional[Dict[str, Any]]:
-    return hubspot_token_store.load(user_id)
-
-  def get_valid_access_token(self, user_id: str) -> str:
-    record = self.get_connection(user_id)
-    if not record:
-      raise HTTPException(status_code=400, detail="HubSpot is not connected")
-    if datetime.fromisoformat(record["expires_at"]) <= datetime.now(timezone.utc):
-      record = self.refresh_access_token(user_id, record)
-    return record["access_token"]
-
-
-oauth_manager = HubSpotOAuthManager()
-
-
 class HubSpotClient:
-  def __init__(self, oauth: HubSpotOAuthManager):
-    self.oauth = oauth
+  def __init__(self):
+    pass
 
   def execute_plan(self, user_id: str, plan: CrmUpsertPlan) -> Dict[str, Any]:
-    access_token = self.oauth.get_valid_access_token(user_id)
+    access_token = get_hubspot_token(user_id)["access_token"]
     contact_id = None
     company_id = None
 
@@ -225,11 +122,68 @@ class HubSpotClient:
     return note_id
 
   def create_blog_post(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    token = self.oauth.get_valid_access_token(user_id)
+    token = get_hubspot_token(user_id)["access_token"]
     response = self._request("post", "/cms/v3/blogs/posts", token, json=payload)
     if response is None:
       raise HTTPException(status_code=502, detail="Empty response from HubSpot")
     return response
+
+  def schedule_blog_post(self, user_id: str, post_id: str, publish_date: str) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    payload = {"id": post_id, "publishDate": publish_date}
+    response = self._request("post", "/cms/v3/blogs/posts/schedule", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def list_blogs(self, user_id: str) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("get", "/content/api/v2/blogs", token)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    objects = response.get("objects") if isinstance(response, dict) else None
+    blogs = []
+    if isinstance(objects, list):
+      for blog in objects:
+        if not isinstance(blog, dict):
+          continue
+        blogs.append(
+          {
+            "id": str(blog.get("id")),
+            "name": blog.get("name"),
+            "slug": blog.get("slug"),
+          }
+        )
+    return {"results": blogs, "total": len(blogs)}
+
+  def list_blog_authors(self, user_id: str) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("get", "/cms/v3/blogs/authors", token)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def execute_raw(
+    self,
+    user_id: str,
+    method: str,
+    path: str,
+    *,
+    params: Optional[Dict[str, Any]] = None,
+    json: Optional[Dict[str, Any]] = None,
+    data: Optional[Any] = None,
+    headers: Optional[Dict[str, str]] = None,
+  ) -> Optional[Dict[str, Any]]:
+    token = get_hubspot_token(user_id)["access_token"]
+    return self._request(
+      method,
+      path,
+      token,
+      params=params,
+      json=json,
+      data=data,
+      headers=headers,
+    )
 
   def _request(
     self,
@@ -239,12 +193,25 @@ class HubSpotClient:
     *,
     params: Optional[Dict[str, Any]] = None,
     json: Optional[Dict[str, Any]] = None,
+    data: Optional[Any] = None,
+    headers: Optional[Dict[str, str]] = None,
     allow_404: bool = False,
   ) -> Optional[Dict[str, Any]]:
-    url = f"{str(settings.hubspot_api_base).rstrip('/')}{path}"
+    base_url = str(settings.hubspot_api_base).rstrip("/")
+    url = path if path.startswith("http") else f"{base_url}{path}"
     try:
+      req_headers = self._headers(token)
+      if headers:
+        req_headers = {**req_headers, **headers}
       with httpx.Client(timeout=20) as client:
-        response = client.request(method.upper(), url, headers=self._headers(token), params=params, json=json)
+        response = client.request(
+          method.upper(),
+          url,
+          headers=req_headers,
+          params=params,
+          json=json,
+          data=data,
+        )
     except httpx.HTTPError as exc:
       raise HTTPException(status_code=500, detail=f"HubSpot request failed: {exc}") from exc
 
@@ -257,4 +224,4 @@ class HubSpotClient:
     return None
 
 
-hubspot_client = HubSpotClient(oauth_manager)
+hubspot_client = HubSpotClient()

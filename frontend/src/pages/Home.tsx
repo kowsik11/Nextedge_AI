@@ -1,14 +1,23 @@
-import { useUser } from "@clerk/clerk-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { ArrowRight, CheckCircle2, Image as ImageIcon, Inbox, Link2, Loader2, Mail, Paperclip, RefreshCw, X } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import {
+  ArrowRight,
+  CheckCircle2,
+  Image as ImageIcon,
+  Inbox,
+  Link2,
+  Loader2,
+  Mail,
+  Paperclip,
+  RefreshCw,
+  X,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button-enhanced";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { toast } from "@/hooks/use-toast";
-import { triggerCmsBlogPostTest } from "@/lib/hubspotCmsTest";
 import { cn } from "@/lib/utils";
+import { useSupabaseAuth } from "@/providers/AuthProvider";
 
 type ConnectionState = "connecting" | "disconnected" | "connected";
 type InboxFilter = "new" | "processed" | "error";
@@ -66,8 +75,9 @@ const formatRelativeTime = (iso?: string | null) => {
 };
 
 const Home = () => {
-  const { user, isLoaded } = useUser();
+  const { user, session, loading } = useSupabaseAuth();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const userId = user?.id;
 
   const [gmailStatus, setGmailStatus] = useState<GmailStatus>({
@@ -77,9 +87,13 @@ const Home = () => {
   });
   const [gmailState, setGmailState] = useState<ConnectionState>("connecting");
   const [gmailDisconnecting, setGmailDisconnecting] = useState(false);
-  const [hubspotState, setHubspotState] = useState<ConnectionState>("connecting");
-  const [hubspotStatus, setHubspotStatus] = useState<HubSpotStatus | null>(null);
+  const [hubspotState, setHubspotState] =
+    useState<ConnectionState>("connecting");
+  const [hubspotStatus, setHubspotStatus] = useState<HubSpotStatus | null>(
+    null
+  );
   const [hubspotError, setHubspotError] = useState<string | null>(null);
+  const [hubspotDisconnecting, setHubspotDisconnecting] = useState(false);
 
   const [showInsights, setShowInsights] = useState(false);
   const [showInbox, setShowInbox] = useState(false);
@@ -93,35 +107,51 @@ const Home = () => {
   const [filter, setFilter] = useState<InboxFilter>("new");
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [selectedMessage, setSelectedMessage] = useState<InboxMessage | null>(null);
+  const [selectedMessage, setSelectedMessage] = useState<InboxMessage | null>(
+    null
+  );
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [autoSynced, setAutoSynced] = useState(false);
-  const [cmsTestRunning, setCmsTestRunning] = useState(false);
 
   const bannerParam = searchParams.get("connected");
   const showBanner = bannerParam === "google" || bannerParam === "hubspot";
+  const buildHeaders = useCallback(
+    (extra: HeadersInit = {}) => ({
+      ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      ...extra,
+    }),
+    [session?.access_token],
+  );
 
   const fetchGmailStatus = useCallback(async () => {
     if (!userId) return;
     try {
-      const res = await fetch(`/api/gmail/status?user_id=${encodeURIComponent(userId)}`);
+      const res = await fetch(`/api/gmail/status?user_id=${encodeURIComponent(userId)}`, {
+        headers: buildHeaders(),
+      });
       if (!res.ok) throw new Error("Failed to load Gmail status");
       const payload = (await res.json()) as GmailStatus;
       setGmailStatus(payload);
       setGmailState(payload.connected ? "connected" : "disconnected");
     } catch (error) {
       console.error(error);
-      setGmailStatus({ connected: false, counts: { new: 0, processed: 0, error: 0 }, baseline_ready: false });
+      setGmailStatus({
+        connected: false,
+        counts: { new: 0, processed: 0, error: 0 },
+        baseline_ready: false,
+      });
       setGmailState("disconnected");
     }
-  }, [userId]);
+  }, [buildHeaders, userId]);
 
   const fetchHubSpotStatus = useCallback(async () => {
     if (!userId) return;
     try {
-      const res = await fetch(`/api/hubspot/status?user_id=${encodeURIComponent(userId)}`);
+      const res = await fetch(`/api/hubspot/status?user_id=${encodeURIComponent(userId)}`, {
+        headers: buildHeaders(),
+      });
       if (!res.ok) throw new Error(`Status request failed: ${res.status}`);
       const payload = (await res.json()) as HubSpotStatus;
       setHubspotStatus(payload);
@@ -132,17 +162,19 @@ const Home = () => {
       setHubspotError("Unable to load HubSpot status.");
       setHubspotState("disconnected");
     }
-  }, [userId]);
+  }, [buildHeaders, userId]);
 
   const triggerSync = useCallback(
     async (opts?: { openInsights?: boolean }) => {
       if (!userId) return;
       setIsSyncing(true);
-      setSyncMessage(!gmailStatus.baseline_ready ? "Preparing Gmail baseline..." : null);
+      setSyncMessage(
+        !gmailStatus.baseline_ready ? "Preparing Gmail baseline..." : null
+      );
       try {
         const res = await fetch("/api/gmail/sync/start", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: buildHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({ user_id: userId, max_messages: 200 }),
         });
         if (!res.ok) {
@@ -160,7 +192,7 @@ const Home = () => {
         setIsSyncing(false);
       }
     },
-    [fetchGmailStatus, gmailStatus.baseline_ready, userId],
+    [buildHeaders, fetchGmailStatus, gmailStatus.baseline_ready, userId]
   );
 
   useEffect(() => {
@@ -175,7 +207,12 @@ const Home = () => {
   }, [userId]);
 
   useEffect(() => {
-    if (gmailState === "connected" && hubspotState === "connected" && userId && !autoSynced) {
+    if (
+      gmailState === "connected" &&
+      hubspotState === "connected" &&
+      userId &&
+      !autoSynced
+    ) {
       setAutoSynced(true);
       triggerSync();
     }
@@ -186,7 +223,10 @@ const Home = () => {
     let active = true;
     const fetchSummary = async () => {
       try {
-        const res = await fetch(`/api/inbox/summary?user_id=${encodeURIComponent(userId)}`);
+        const res = await fetch(
+          `/api/inbox/summary?user_id=${encodeURIComponent(userId)}`,
+          { headers: buildHeaders() }
+        );
         if (!res.ok) throw new Error("Unable to fetch inbox summary");
         const data = (await res.json()) as InboxSummary;
         if (active) {
@@ -204,7 +244,7 @@ const Home = () => {
       active = false;
       window.clearInterval(interval);
     };
-  }, [showInsights, userId]);
+  }, [buildHeaders, showInsights, userId]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -218,9 +258,13 @@ const Home = () => {
     let active = true;
     setMessagesLoading(true);
     setMessagesError(null);
-    const params = new URLSearchParams({ user_id: userId, status: filter, limit: "50" });
+    const params = new URLSearchParams({
+      user_id: userId,
+      status: filter,
+      limit: "50",
+    });
     if (debouncedSearch) params.set("query", debouncedSearch);
-    fetch(`/api/inbox/messages?${params.toString()}`)
+    fetch(`/api/inbox/messages?${params.toString()}`, { headers: buildHeaders() })
       .then(async (res) => {
         if (!res.ok) throw new Error("Failed to load inbox messages");
         return (await res.json()).messages as InboxMessage[];
@@ -251,25 +295,43 @@ const Home = () => {
     return () => {
       active = false;
     };
-  }, [showInbox, filter, debouncedSearch, userId]);
+  }, [buildHeaders, showInbox, filter, debouncedSearch, userId]);
 
   const summaryStats = useMemo(
     () => [
-      { label: "New", value: summary?.counts.new ?? gmailStatus.counts?.new ?? 0, accent: "text-primary" },
-      { label: "Processed", value: summary?.counts.processed ?? gmailStatus.counts?.processed ?? 0, accent: "text-success" },
-      { label: "Errors", value: summary?.counts.error ?? gmailStatus.counts?.error ?? 0, accent: "text-destructive" },
+      {
+        label: "New",
+        value: summary?.counts.new ?? gmailStatus.counts?.new ?? 0,
+        accent: "text-primary",
+      },
+      {
+        label: "Processed",
+        value: summary?.counts.processed ?? gmailStatus.counts?.processed ?? 0,
+        accent: "text-success",
+      },
+      {
+        label: "Errors",
+        value: summary?.counts.error ?? gmailStatus.counts?.error ?? 0,
+        accent: "text-destructive",
+      },
     ],
-    [summary, gmailStatus],
+    [summary, gmailStatus]
   );
 
-  const greeting = user?.firstName || user?.fullName || "there";
-  const baselineReady = gmailStatus.baseline_ready ?? false;
-  const canProceed = gmailState === "connected" && hubspotState === "connected" && baselineReady;
+  const greeting =
+    (user?.user_metadata as Record<string, string | undefined>)?.full_name ||
+    user?.email ||
+    "there";
+  const baselineReady = gmailStatus.baseline_ready ?? true;
+  const canProceed =
+    gmailState === "connected" && hubspotState === "connected";
 
   const handleConnectGmail = () => {
     if (!userId) return;
     setGmailState("connecting");
-    window.location.href = `/api/google/connect?user_id=${encodeURIComponent(userId)}`;
+    window.location.href = `/api/google/connect?user_id=${encodeURIComponent(
+      userId
+    )}`;
   };
 
   const handleDisconnectGmail = async () => {
@@ -278,7 +340,7 @@ const Home = () => {
     try {
       const res = await fetch("/api/google/disconnect", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: buildHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ user_id: userId }),
       });
       if (!res.ok) throw new Error("Disconnect failed");
@@ -294,33 +356,36 @@ const Home = () => {
   const handleConnectHubSpot = () => {
     if (!userId) return;
     setHubspotState("connecting");
-    window.location.href = `/api/hubspot/connect?user_id=${encodeURIComponent(userId)}`;
+    window.location.href = `/api/hubspot/connect?user_id=${encodeURIComponent(
+      userId
+    )}`;
   };
 
-  const handleCmsTest = async () => {
-    if (!userId || cmsTestRunning) return;
-    setCmsTestRunning(true);
+  const handleDisconnectHubSpot = async () => {
+    if (!userId) return;
+    setHubspotDisconnecting(true);
     try {
-      const result = await triggerCmsBlogPostTest(userId);
-      toast({
-        title: "CMS sample payload sent",
-        description: result.hubspot_response?.id
-          ? `HubSpot created blog post ${String(result.hubspot_response.id)}.`
-          : "HubSpot accepted the sample payload.",
+      const res = await fetch("/api/hubspot/disconnect", { // Assuming a similar disconnect endpoint for HubSpot
+        method: "POST",
+        headers: buildHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ user_id: userId }),
       });
+      if (!res.ok) throw new Error("Disconnect failed");
+      await fetchHubSpotStatus();
+      setHubspotState("disconnected");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unexpected error occurred.";
-      toast({
-        title: "CMS test failed",
-        description: message,
-        variant: "destructive",
-      });
+      console.error(error);
     } finally {
-      setCmsTestRunning(false);
+      setHubspotDisconnecting(false);
     }
   };
 
-  if (!isLoaded) {
+
+  const handleOpenTests = () => {
+    navigate("/tests");
+  };
+
+  if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -336,12 +401,22 @@ const Home = () => {
     );
   }
 
+  // Null-safe wrapper for hubspotStatus
+  const hubspotCardStatus = hubspotStatus ?? {
+    connected: false,
+    email: "",
+  };
+
   return (
     <div className="min-h-screen bg-background px-6 py-12">
       <div className="mx-auto flex max-w-6xl flex-col gap-8">
         <div>
-          <h1 className="text-3xl font-semibold text-foreground">Hi {greeting}</h1>
-          <p className="text-muted-foreground">Let&apos;s secure your automations in two quick steps.</p>
+          <h1 className="text-3xl font-semibold text-foreground">
+            Hi {greeting}
+          </h1>
+          <p className="text-muted-foreground">
+            Let's secure your automations in two quick steps.
+          </p>
         </div>
 
         {showBanner && (
@@ -363,42 +438,56 @@ const Home = () => {
             onConnect={handleConnectGmail}
             detail={
               gmailStatus.baseline_at
-                ? `Watching new mail since ${formatRelativeTime(gmailStatus.baseline_at)}`
+                ? `Watching new mail since ${formatRelativeTime(
+                    gmailStatus.baseline_at
+                  )}`
                 : gmailStatus.last_checked_at
                 ? `Last sync ${formatRelativeTime(gmailStatus.last_checked_at)}`
                 : undefined
             }
-            onDisconnect={gmailStatus.connected ? handleDisconnectGmail : undefined}
+            onDisconnect={
+              gmailStatus.connected ? handleDisconnectGmail : undefined
+            }
             disconnecting={gmailDisconnecting}
           />
           <ConnectionCard
             title="Connect HubSpot"
             description={
-              hubspotStatus?.connected
-                ? `Connected as ${hubspotStatus.email || "HubSpot user"}`
+              hubspotCardStatus.connected
+                ? `Connected as ${hubspotCardStatus.email || "HubSpot user"}`
                 : "Allow us to write AI-enriched insights back to your CRM."
             }
             state={hubspotState}
             onConnect={handleConnectHubSpot}
-            detail={hubspotStatus?.connected ? "Synced" : undefined}
+            detail={hubspotCardStatus.connected ? "Synced" : undefined}
             error={hubspotError || undefined}
+            onDisconnect={hubspotCardStatus.connected ? handleDisconnectHubSpot : undefined}
+            disconnecting={hubspotDisconnecting}
           />
         </div>
 
-
-
-          <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-border bg-muted/20 p-6 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-base font-semibold text-foreground">All set? Jump into your live inbox.</p>
-              <p className="text-sm text-muted-foreground">
-                We&apos;ll keep polling Gmail once both integrations are active. You can re-run sync anytime.
+        <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-border bg-muted/20 p-6 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-base font-semibold text-foreground">
+              All set? Jump into your live inbox.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              We'll keep polling Gmail once both integrations are active.
+              You can re-run sync anytime.
+            </p>
+            {gmailStatus.connected && !baselineReady && (
+              <p className="text-xs text-muted-foreground">
+                Waiting for the first baseline sync to finish? hang tight.
               </p>
-              {gmailStatus.connected && !baselineReady && (
-                <p className="text-xs text-muted-foreground">Waiting for the first baseline sync to finish�?� hang tight.</p>
-              )}
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <Button variant="hero" size="lg" disabled={!canProceed || isSyncing} onClick={() => triggerSync({ openInsights: true })}>
+            )}
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Button
+              variant="hero"
+              size="lg"
+              disabled={!canProceed || isSyncing}
+              onClick={() => triggerSync({ openInsights: true })}
+            >
               {isSyncing ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -411,13 +500,22 @@ const Home = () => {
                 </>
               )}
             </Button>
-            <Button variant="hero-outline" size="lg" disabled={!gmailStatus.connected || !baselineReady || isSyncing} onClick={() => triggerSync()}>
+            <Button
+              variant="hero-outline"
+              size="lg"
+              disabled={!gmailStatus.connected || !baselineReady || isSyncing}
+              onClick={() => triggerSync()}
+            >
               <RefreshCw className="h-4 w-4" />
               Sync again
             </Button>
           </div>
         </div>
-        {syncMessage && <p className="text-sm font-medium text-muted-foreground">{syncMessage}</p>}
+        {syncMessage && (
+          <p className="text-sm font-medium text-muted-foreground">
+            {syncMessage}
+          </p>
+        )}
       </div>
 
       {showInsights && (
@@ -425,36 +523,63 @@ const Home = () => {
           <div className="flex h-full flex-col p-6">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-wide text-primary">Live feed</p>
-                <h2 className="text-2xl font-semibold text-foreground">New emails detected</h2>
+                <p className="text-sm font-semibold uppercase tracking-wide text-primary">
+                  Live feed
+                </p>
+                <h2 className="text-2xl font-semibold text-foreground">
+                  New emails detected
+                </h2>
                 <p className="text-sm text-muted-foreground">
-                  Last checked {summary?.last_checked_at ? formatRelativeTime(summary.last_checked_at) : "never"}
+                  Last checked{" "}
+                  {summary?.last_checked_at
+                    ? formatRelativeTime(summary.last_checked_at)
+                    : "never"}
                 </p>
               </div>
-              <Button variant="ghost" size="icon" onClick={() => setShowInsights(false)}>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowInsights(false)}
+              >
                 <X className="h-4 w-4" />
               </Button>
             </div>
 
             <div className="mt-8 grid grid-cols-3 gap-3">
               {summaryStats.map((item) => (
-                <div key={item.label} className="rounded-xl border border-border bg-muted/40 p-4 text-center">
-                  <p className={cn("text-2xl font-bold", item.accent)}>{item.value}</p>
-                  <p className="text-xs uppercase text-muted-foreground">{item.label}</p>
+                <div
+                  key={item.label}
+                  className="rounded-xl border border-border bg-muted/40 p-4 text-center"
+                >
+                  <p className={cn("text-2xl font-bold", item.accent)}>
+                    {item.value}
+                  </p>
+                  <p className="text-xs uppercase text-muted-foreground">
+                    {item.label}
+                  </p>
                 </div>
               ))}
             </div>
-            {summaryError && <p className="mt-3 text-sm text-destructive">{summaryError}</p>}
+            {summaryError && (
+              <p className="mt-3 text-sm text-destructive">{summaryError}</p>
+            )}
 
             <div className="mt-auto space-y-4">
               <div className="rounded-xl border border-border bg-card p-4">
                 <p className="text-sm text-muted-foreground">Inbox health</p>
-                <p className="text-3xl font-semibold text-foreground">{summary?.counts.new ?? 0} new emails</p>
+                <p className="text-3xl font-semibold text-foreground">
+                  {summary?.counts.new ?? 0} new emails
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  {(summary?.counts.processed ?? 0).toLocaleString()} processed · {(summary?.counts.error ?? 0).toLocaleString()} with errors
+                  {(summary?.counts.processed ?? 0).toLocaleString()} processed
+                  · {(summary?.counts.error ?? 0).toLocaleString()} with errors
                 </p>
               </div>
-              <Button variant="hero-outline" size="lg" onClick={() => setShowInbox(true)}>
+              <Button
+                variant="hero-outline"
+                size="lg"
+                onClick={() => setShowInbox(true)}
+              >
                 View list
               </Button>
             </div>
@@ -464,33 +589,54 @@ const Home = () => {
 
       {showInbox && (
         <div className="fixed inset-y-0 left-0 z-40 w-full max-w-5xl border-r border-border bg-background shadow-2xl">
-          <div className="flex h-full flex-col p-6">
+          <div className="flex h-full flex-col p-6 overflow-hidden">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-wide text-primary">Inbox preview</p>
-                <h2 className="text-2xl font-semibold text-foreground">Latest Gmail activity</h2>
-                <p className="text-sm text-muted-foreground">Filter, search, and open any record in Gmail or HubSpot.</p>
+                <p className="text-sm font-semibold uppercase tracking-wide text-primary">
+                  Inbox preview
+                </p>
+                <h2 className="text-2xl font-semibold text-foreground">
+                  Latest Gmail activity
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  Filter, search, and open any record in Gmail or HubSpot.
+                </p>
               </div>
-              <Button variant="ghost" size="icon" onClick={() => setShowInbox(false)}>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowInbox(false)}
+              >
                 <X className="h-4 w-4" />
               </Button>
             </div>
 
             <div className="mt-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex gap-2">
-                {(["new", "processed", "error"] as InboxFilter[]).map((item) => (
-                  <Button key={item} variant={filter === item ? "hero" : "outline"} size="sm" onClick={() => setFilter(item)}>
-                    {item.charAt(0).toUpperCase() + item.slice(1)}
-                  </Button>
-                ))}
+                {(["new", "processed", "error"] as InboxFilter[]).map(
+                  (item) => (
+                    <Button
+                      key={item}
+                      variant={filter === item ? "hero" : "outline"}
+                      size="sm"
+                      onClick={() => setFilter(item)}
+                    >
+                      {item.charAt(0).toUpperCase() + item.slice(1)}
+                    </Button>
+                  )
+                )}
               </div>
               <div className="flex w-full gap-2 lg:max-w-xs">
-                <Input placeholder="Search subject, sender, or content..." value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} />
+                <Input
+                  placeholder="Search subject, sender, or content..."
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                />
               </div>
             </div>
 
-            <div className="mt-6 grid flex-1 gap-6 lg:grid-cols-[1.2fr,0.8fr]">
-              <div className="flex flex-col rounded-2xl border border-border bg-card/60">
+            <div className="mt-6 grid flex-1 gap-6 overflow-hidden lg:grid-cols-[1.2fr,0.8fr]">
+              <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-card/60">
                 <div className="flex items-center gap-2 border-b border-border px-4 py-3 text-sm text-muted-foreground">
                   <Inbox className="h-4 w-4" />
                   <span>{messages.length} conversations</span>
@@ -503,7 +649,9 @@ const Home = () => {
                     </div>
                   )}
                   {!messagesLoading && !messages.length && (
-                    <div className="py-8 text-center text-sm text-muted-foreground">{messagesError || "Nothing to show just yet."}</div>
+                    <div className="py-8 text-center text-sm text-muted-foreground">
+                      {messagesError || "Nothing to show just yet."}
+                    </div>
                   )}
                   <div className="space-y-2">
                     {messages.map((message) => (
@@ -511,22 +659,37 @@ const Home = () => {
                         key={message.id}
                         className={cn(
                           "w-full rounded-xl border border-transparent bg-background/80 p-4 text-left transition hover:border-primary/40 hover:bg-primary/5",
-                          selectedMessage?.id === message.id && "border-primary bg-primary/5",
+                          selectedMessage?.id === message.id &&
+                            "border-primary bg-primary/5"
                         )}
                         onClick={() => setSelectedMessage(message)}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <p className="text-sm font-semibold text-foreground">{message.subject}</p>
-                            <p className="text-xs text-muted-foreground">{message.sender || "Unknown sender"}</p>
+                            <p className="text-sm font-semibold text-foreground">
+                              {message.subject}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {message.sender || "Unknown sender"}
+                            </p>
                           </div>
-                          <span className="text-xs text-muted-foreground">{formatRelativeTime(message.received_at || message.created_at)}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {formatRelativeTime(
+                              message.received_at || message.created_at
+                            )}
+                          </span>
                         </div>
-                        <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{message.preview || "No preview"}</p>
+                        <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
+                          {message.preview || "No preview"}
+                        </p>
                         <div className="mt-3 flex items-center gap-3 text-muted-foreground">
-                          {message.has_attachments && <Paperclip className="h-4 w-4" />}
+                          {message.has_attachments && (
+                            <Paperclip className="h-4 w-4" />
+                          )}
                           {message.has_links && <Link2 className="h-4 w-4" />}
-                          {message.has_images && <ImageIcon className="h-4 w-4" />}
+                          {message.has_images && (
+                            <ImageIcon className="h-4 w-4" />
+                          )}
                         </div>
                       </button>
                     ))}
@@ -534,7 +697,7 @@ const Home = () => {
                 </div>
               </div>
 
-              <div className="flex flex-col rounded-2xl border border-border bg-card/60 p-4">
+              <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-card/60 p-4">
                 {selectedMessage ? (
                   <>
                     <div className="flex items-center justify-between gap-2">
@@ -542,32 +705,52 @@ const Home = () => {
                         {selectedMessage.status}
                       </Badge>
                       <span className="text-xs text-muted-foreground">
-                        Updated {formatRelativeTime(selectedMessage.updated_at || selectedMessage.created_at)}
+                        Updated{" "}
+                        {formatRelativeTime(
+                          selectedMessage.updated_at ||
+                            selectedMessage.created_at
+                        )}
                       </span>
                     </div>
                     <div className="mt-4 space-y-1">
-                      <p className="text-lg font-semibold text-foreground">{selectedMessage.subject}</p>
-                      <p className="text-sm text-muted-foreground">{selectedMessage.sender || "Unknown sender"}</p>
+                      <p className="text-lg font-semibold text-foreground">
+                        {selectedMessage.subject}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {selectedMessage.sender || "Unknown sender"}
+                      </p>
                     </div>
                     <div className="mt-4 flex-1 overflow-y-auto rounded-lg bg-background/60 p-4">
                       <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
-                        {selectedMessage.preview || selectedMessage.snippet || "No preview available yet."}
+                        {selectedMessage.preview ||
+                          selectedMessage.snippet ||
+                          "No preview available yet."}
                       </p>
                       {selectedMessage.error && (
-                        <p className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{selectedMessage.error}</p>
+                        <p className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                          {selectedMessage.error}
+                        </p>
                       )}
                     </div>
                     <div className="mt-4 flex flex-wrap gap-3">
                       {selectedMessage.gmail_url && (
                         <Button variant="hero-outline" size="sm" asChild>
-                          <a href={selectedMessage.gmail_url} target="_blank" rel="noreferrer">
+                          <a
+                            href={selectedMessage.gmail_url}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
                             Open in Gmail
                           </a>
                         </Button>
                       )}
                       {selectedMessage.crm_record_url && (
                         <Button variant="hero" size="sm" asChild>
-                          <a href={selectedMessage.crm_record_url} target="_blank" rel="noreferrer">
+                          <a
+                            href={selectedMessage.crm_record_url}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
                             Open in CRM note
                           </a>
                         </Button>
@@ -577,7 +760,9 @@ const Home = () => {
                 ) : (
                   <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground">
                     <Mail className="mb-4 h-8 w-8 text-muted-foreground" />
-                    <p className="text-sm">Select a message to view the enriched preview.</p>
+                    <p className="text-sm">
+                      Select a message to view the enriched preview.
+                    </p>
                   </div>
                 )}
               </div>
@@ -585,25 +770,19 @@ const Home = () => {
           </div>
         </div>
       )}
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
-        <Button
-          variant="hero"
-          size="lg"
-          className="shadow-xl"
-          disabled={cmsTestRunning || hubspotState !== "connected"}
-          onClick={handleCmsTest}
-        >
-          {cmsTestRunning ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Sending sample payload...
-            </>
-          ) : (
-            "Test CMS POST"
-          )}
-        </Button>
-        <p className="text-xs text-muted-foreground">Sends the fixed /cms/v3/blogs/posts payload.</p>
-      </div>
+      {!showInbox && (
+        <div className="fixed bottom-6 left-6 z-50">
+          <Button
+            variant="hero"
+            size="lg"
+            className="shadow-xl"
+            onClick={handleOpenTests}
+            disabled={hubspotState !== "connected"}
+          >
+            Open tests
+          </Button>
+        </div>
+      )}
     </div>
   );
 };
@@ -633,17 +812,29 @@ const ConnectionCard = ({
   const isConnecting = state === "connecting";
 
   return (
-    <div className={cn("rounded-2xl border border-border bg-card/70 p-6 shadow-card transition", isConnected && "border-success/40 bg-success/5")}>
+    <div
+      className={cn(
+        "rounded-2xl border border-border bg-card/70 p-6 shadow-card transition",
+        isConnected && "border-success/40 bg-success/5"
+      )}
+    >
       <div className="flex items-center justify-between gap-4">
         <div>
           <h3 className="text-xl font-semibold text-foreground">{title}</h3>
           <p className="text-sm text-muted-foreground">{description}</p>
           {detail && <p className="text-xs text-muted-foreground">{detail}</p>}
         </div>
-        <Badge variant={isConnected ? "secondary" : "outline"} className="flex items-center gap-1 text-xs uppercase">
+        <Badge
+          variant={isConnected ? "secondary" : "outline"}
+          className="flex items-center gap-1 text-xs uppercase"
+        >
           {isConnecting && <Loader2 className="h-3 w-3 animate-spin" />}
           {isConnected && <CheckCircle2 className="h-3 w-3 text-success" />}
-          {isConnecting ? "Connecting" : isConnected ? "Connected" : "Not Connected"}
+          {isConnecting
+            ? "Connecting"
+            : isConnected
+            ? "Connected"
+            : "Not Connected"}
         </Badge>
       </div>
       <div className="mt-4 flex items-center justify-between">
@@ -651,16 +842,30 @@ const ConnectionCard = ({
           {isConnected ? (
             <p className="text-sm font-medium text-success">Connected.</p>
           ) : (
-            <p className="text-sm text-muted-foreground">{isConnecting ? "Waiting for authorization…" : "Click connect to continue."}</p>
+            <p className="text-sm text-muted-foreground">
+              {isConnecting
+                ? "Waiting for authorization…"
+                : "Click connect to continue."}
+            </p>
           )}
         </div>
         {!isConnected && (
-          <Button variant="hero" size="sm" onClick={onConnect} disabled={isConnecting}>
+          <Button
+            variant="hero"
+            size="sm"
+            onClick={onConnect}
+            disabled={isConnecting}
+          >
             Connect
           </Button>
         )}
         {isConnected && onDisconnect && (
-          <Button variant="hero-outline" size="sm" onClick={onDisconnect} disabled={disconnecting}>
+          <Button
+            variant="hero-outline"
+            size="sm"
+            onClick={onDisconnect}
+            disabled={disconnecting}
+          >
             {disconnecting ? "Disconnecting…" : "Disconnect"}
           </Button>
         )}
