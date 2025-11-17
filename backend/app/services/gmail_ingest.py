@@ -13,7 +13,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from ..config import settings
-from ..storage.gmail_token_store import gmail_token_store
+from ..storage.supabase_token_store import gmail_token_store
 from ..storage.message_store import message_store
 from ..storage.state_store import state_store
 from .extract_text import extract_attachment_text

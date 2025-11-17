@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .routers import google_oauth, gmail, pipeline, hubspot, inbox
+from .routers import google_oauth, gmail, pipeline, hubspot, inbox, oauth, gmail_poll, hubspot_contact_sync, messages
+from .auth import attach_user_to_request
 
 app = FastAPI(title="NextEdge Backend", version="1.0.0")
 
@@ -21,6 +23,19 @@ app.include_router(gmail.router)
 app.include_router(hubspot.router)
 app.include_router(pipeline.router)
 app.include_router(inbox.router)
+app.include_router(oauth.router)
+app.include_router(gmail_poll.router)
+app.include_router(hubspot_contact_sync.router)
+app.include_router(messages.router)
+
+
+@app.middleware("http")
+async def supabase_auth_middleware(request: Request, call_next):  # type: ignore[override]
+  try:
+    await attach_user_to_request(request)
+  except Exception as exc:  # do not block requests; allow explicit user_id to pass through
+    request.state.auth_error = str(exc)
+  return await call_next(request)
 
 
 @app.get("/healthz")

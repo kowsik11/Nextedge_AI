@@ -2,32 +2,39 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from ..services.gmail_ingest import gmail_ingestor
-from ..storage.gmail_token_store import gmail_token_store
+from ..storage.supabase_token_store import gmail_token_store
 from ..storage.message_store import message_store
 from ..storage.state_store import state_store
+from ..auth import resolve_user_id
+from ..background.polling_worker import poll_gmail_for_user
 
 router = APIRouter(prefix="/api/gmail", tags=["gmail"])
 
 
 class SyncRequest(BaseModel):
-  user_id: str
+  user_id: str | None = None
   max_messages: int = Field(100, ge=1, le=500)
   query: Optional[str] = None
   label_ids: Optional[List[str]] = None
 
 
 @router.get("/status")
-def gmail_status(user_id: str):
-  record = gmail_token_store.load(user_id)
+def gmail_status(request: Request, user_id: str | None = None):
+  # Do not 401; allow query param fallback
+  resolved_user_id = user_id or getattr(request.state, "user_id", None)
+  if not resolved_user_id:
+    return {"connected": False}
+
+  record = gmail_token_store.load(resolved_user_id)
   if not record:
     return {"connected": False}
 
-  state = state_store.get_state(user_id)
-  summary = message_store.summary(user_id)
+  state = state_store.get_state(resolved_user_id)
+  summary = message_store.summary(resolved_user_id)
   return {
     "connected": True,
     "email": record.get("email"),
@@ -43,15 +50,10 @@ def gmail_status(user_id: str):
 
 
 @router.post("/sync/start")
-def sync_gmail(payload: SyncRequest):
+async def sync_gmail(payload: SyncRequest, request: Request):
+  resolved_user_id = resolve_user_id(request, payload.user_id)
   try:
-    messages = gmail_ingestor.poll(
-      payload.user_id,
-      max_messages=payload.max_messages,
-      query=payload.query,
-      label_ids=payload.label_ids,
-    )
-  except RuntimeError as exc:
-    raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-  return {"processed": len(messages)}
+    result = await poll_gmail_for_user(resolved_user_id)
+  except Exception as exc:
+    raise HTTPException(status_code=500, detail=str(exc)) from exc
+  return {"inserted": result.get("inserted"), "errors": result.get("errors"), "last_poll_at": result.get("last_poll_at")}
