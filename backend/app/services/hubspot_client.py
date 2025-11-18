@@ -9,7 +9,7 @@ from fastapi import HTTPException
 
 from ..config import settings
 from .planner import CrmUpsertPlan
-from .hubspot_oauth import get_hubspot_token
+from .hubspot_oauth import get_hubspot_token, build_auth_url
 
 logger = logging.getLogger(__name__)
 
@@ -128,14 +128,6 @@ class HubSpotClient:
       raise HTTPException(status_code=502, detail="Empty response from HubSpot")
     return response
 
-  def schedule_blog_post(self, user_id: str, post_id: str, publish_date: str) -> Dict[str, Any]:
-    token = get_hubspot_token(user_id)["access_token"]
-    payload = {"id": post_id, "publishDate": publish_date}
-    response = self._request("post", "/cms/v3/blogs/posts/schedule", token, json=payload)
-    if response is None:
-      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
-    return response
-
   def list_blogs(self, user_id: str) -> Dict[str, Any]:
     token = get_hubspot_token(user_id)["access_token"]
     response = self._request("get", "/content/api/v2/blogs", token)
@@ -163,27 +155,76 @@ class HubSpotClient:
       raise HTTPException(status_code=502, detail="Empty response from HubSpot")
     return response
 
-  def execute_raw(
-    self,
-    user_id: str,
-    method: str,
-    path: str,
-    *,
-    params: Optional[Dict[str, Any]] = None,
-    json: Optional[Dict[str, Any]] = None,
-    data: Optional[Any] = None,
-    headers: Optional[Dict[str, str]] = None,
-  ) -> Optional[Dict[str, Any]]:
+  # Contacts test helpers
+  def create_contact(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     token = get_hubspot_token(user_id)["access_token"]
-    return self._request(
-      method,
-      path,
-      token,
-      params=params,
-      json=json,
-      data=data,
-      headers=headers,
-    )
+    response = self._request("post", "/crm/v3/objects/contacts", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def update_contact(self, user_id: str, contact_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("patch", f"/crm/v3/objects/contacts/{contact_id}", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def get_contact(self, user_id: str, contact_id: str) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("get", f"/crm/v3/objects/contacts/{contact_id}", token)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def search_contacts(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/contacts/search", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def list_contacts(self, user_id: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("get", "/crm/v3/objects/contacts", token, params=params or {"limit": 5})
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def batch_read_contacts(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/contacts/batch/read", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def batch_create_contacts(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/contacts/batch/create", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def batch_update_contacts(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/contacts/batch/update", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def batch_upsert_contacts(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/contacts/batch/upsert", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def associate_contact(self, user_id: str, path: str) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("put", path, token)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
 
   def _request(
     self,
@@ -193,32 +234,37 @@ class HubSpotClient:
     *,
     params: Optional[Dict[str, Any]] = None,
     json: Optional[Dict[str, Any]] = None,
-    data: Optional[Any] = None,
-    headers: Optional[Dict[str, str]] = None,
     allow_404: bool = False,
   ) -> Optional[Dict[str, Any]]:
     base_url = str(settings.hubspot_api_base).rstrip("/")
     url = path if path.startswith("http") else f"{base_url}{path}"
     try:
       req_headers = self._headers(token)
-      if headers:
-        req_headers = {**req_headers, **headers}
       with httpx.Client(timeout=20) as client:
-        response = client.request(
-          method.upper(),
-          url,
-          headers=req_headers,
-          params=params,
-          json=json,
-          data=data,
-        )
+        response = client.request(method.upper(), url, headers=req_headers, params=params, json=json)
     except httpx.HTTPError as exc:
       raise HTTPException(status_code=500, detail=f"HubSpot request failed: {exc}") from exc
 
     if allow_404 and response.status_code == 404:
       return None
     if response.status_code >= 400:
-      raise HTTPException(status_code=response.status_code, detail=response.text)
+      missing_scopes = None
+      try:
+        payload = response.json()
+        category = payload.get("category")
+        if response.status_code == 403 and category == "MISSING_SCOPES":
+          missing_scopes = payload
+      except Exception:
+        payload = response.text
+      if missing_scopes:
+        authorize_url = build_auth_url("reauthorize")
+        detail = {
+          "message": "HubSpot is missing required scopes. Reconnect with updated scopes to continue.",
+          "authorize_url": authorize_url,
+          "hubspot_error": missing_scopes,
+        }
+        raise HTTPException(status_code=403, detail=detail)
+      raise HTTPException(status_code=response.status_code, detail=payload)
     if response.content:
       return response.json()
     return None

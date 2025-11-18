@@ -1,44 +1,21 @@
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button-enhanced";
 import { toast } from "@/hooks/use-toast";
-import { fetchHubSpotTestCatalog, runHubSpotTest, type HubSpotTestEntry } from "@/lib/hubspotTests";
+import { triggerCmsBlogPostTest } from "@/lib/hubspotCmsTest";
 import { useSupabaseAuth } from "@/providers/AuthProvider";
 
 const TestsPage = () => {
-  const { user, session, loading } = useSupabaseAuth();
+  const { user, loading } = useSupabaseAuth();
   const navigate = useNavigate();
   const userId = user?.id;
-  const accessToken = session?.access_token;
-
-  const [catalog, setCatalog] = useState<HubSpotTestEntry[]>([]);
-  const [catalogLoading, setCatalogLoading] = useState(true);
-  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [cmsTestRunning, setCmsTestRunning] = useState(false);
   const [runningKey, setRunningKey] = useState<string | null>(null);
   const [lastResponse, setLastResponse] = useState("");
-  const [lastEntry, setLastEntry] = useState<HubSpotTestEntry | null>(null);
-
-  useEffect(() => {
-    if (loading) return;
-    setCatalogLoading(true);
-    fetchHubSpotTestCatalog(accessToken)
-      .then((data) => setCatalog(data))
-      .catch((error: Error) => setCatalogError(error.message))
-      .finally(() => setCatalogLoading(false));
-  }, [accessToken, loading]);
-
-  const groupedTests = useMemo(() => {
-    const map = new Map<string, HubSpotTestEntry[]>();
-    catalog.forEach((entry) => {
-      if (!map.has(entry.section)) {
-        map.set(entry.section, []);
-      }
-      map.get(entry.section)!.push(entry);
-    });
-    return Array.from(map.entries());
-  }, [catalog]);
+  const [lastLabel, setLastLabel] = useState("");
+  const [latestContactId, setLatestContactId] = useState<string | null>(null);
 
   if (loading) {
     return (
@@ -56,33 +33,108 @@ const TestsPage = () => {
     );
   }
 
-  const handleRun = async (entry: HubSpotTestEntry) => {
-    setRunningKey(entry.key);
-    setLastEntry(entry);
+  const callTestEndpoint = async (label: string, path: string) => {
+    setRunningKey(label);
+    setLastLabel(label);
     setLastResponse("");
     try {
-      const response = await runHubSpotTest({ userId, key: entry.key, accessToken });
-      const pretty = JSON.stringify(response.result, null, 2);
-      setLastResponse(pretty || "Request completed with no body.");
-      toast({ title: "Request sent", description: `${entry.method} ${entry.path}` });
+      const res = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        throw new Error(text || `Request failed: ${res.status}`);
+      }
+      try {
+        const json = JSON.parse(text || "{}");
+        setLastResponse(JSON.stringify(json, null, 2));
+        if (label === "Create contact" && json?.id) {
+          setLatestContactId(String(json.id));
+        }
+      } catch {
+        setLastResponse(text || "Request completed with no body.");
+      }
+      toast({ title: "Request sent", description: label });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unexpected error occurred.";
-      toast({ title: "Test failed", description: message, variant: "destructive" });
       setLastResponse(`Error: ${message}`);
+      toast({ title: "Test failed", description: message, variant: "destructive" });
     } finally {
       setRunningKey(null);
     }
   };
 
+  const handleGetContact = async () => {
+    const chosenId = latestContactId || window.prompt("Enter a HubSpot contact ID to fetch")?.trim();
+    if (!chosenId) return;
+    setRunningKey("Get contact");
+    setLastLabel("Get contact");
+    setLastResponse("");
+    try {
+      const res = await fetch("/api/hubspot/test/contacts/get", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId, id: chosenId }),
+      });
+      const text = await res.text();
+      if (res.status === 404) {
+        console.log("Get contact 404 payload:", text);
+        setLastResponse("Contact not found. Check id or re-create.");
+        toast({ title: "Contact not found", description: "Check id or re-create.", variant: "destructive" });
+        return;
+      }
+      if (!res.ok) {
+        throw new Error(text || `Request failed: ${res.status}`);
+      }
+      try {
+        const json = JSON.parse(text || "{}");
+        setLastResponse(JSON.stringify(json, null, 2));
+      } catch {
+        setLastResponse(text || "Request completed with no body.");
+      }
+      toast({ title: "Request sent", description: "Get contact" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unexpected error occurred.";
+      setLastResponse(`Error: ${message}`);
+      toast({ title: "Test failed", description: message, variant: "destructive" });
+    } finally {
+      setRunningKey(null);
+    }
+  };
+
+  const handleCmsTest = async () => {
+    setCmsTestRunning(true);
+    setLastLabel("Test CMS POST");
+    try {
+      const result = await triggerCmsBlogPostTest(userId);
+      const pretty = JSON.stringify(result, null, 2);
+      setLastResponse(pretty || "Request completed with no body.");
+      toast({
+        title: "CMS sample payload sent",
+        description: result.hubspot_response?.id
+          ? `HubSpot created blog post ${String(result.hubspot_response.id)}.`
+          : "HubSpot accepted the sample payload.",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unexpected error occurred.";
+      setLastResponse(`Error: ${message}`);
+      toast({ title: "CMS test failed", description: message, variant: "destructive" });
+    } finally {
+      setCmsTestRunning(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background px-6 py-8">
-      <div className="mx-auto flex max-w-6xl flex-col gap-6">
+      <div className="mx-auto flex max-w-4xl flex-col gap-6">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-wide text-primary">Test utilities</p>
             <h1 className="text-3xl font-semibold text-foreground">HubSpot API playground</h1>
             <p className="text-sm text-muted-foreground">
-              Each button below sends a predefined sample payload for that endpoint using your connected HubSpot portal.
+              Buttons send predefined dummy payloads using your HubSpot connection. No placeholders required.
             </p>
           </div>
           <Button variant="hero-outline" size="sm" onClick={() => navigate("/home")}>
@@ -91,55 +143,70 @@ const TestsPage = () => {
           </Button>
         </div>
 
-        {catalogLoading && (
-          <div className="flex items-center justify-center gap-2 rounded-2xl border border-border bg-card/80 p-6 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading endpoints...
-          </div>
-        )}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Button
+            variant="hero"
+            onClick={handleCmsTest}
+            disabled={cmsTestRunning || !!runningKey}
+          >
+            {cmsTestRunning ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Sending payload...
+              </>
+            ) : (
+              "Test CMS POST"
+            )}
+          </Button>
+          <Button variant="hero-outline" onClick={() => navigate("/blogs")} disabled={!!runningKey || cmsTestRunning}>
+            View blog IDs
+          </Button>
+          <Button variant="hero-outline" onClick={() => navigate("/blog-authors")} disabled={!!runningKey || cmsTestRunning}>
+            View blog authors
+          </Button>
+        </div>
 
-        {!catalogLoading && catalogError && (
-          <div className="rounded-2xl border border-destructive/40 bg-destructive/10 p-6 text-destructive">{catalogError}</div>
-        )}
-
-        {!catalogLoading && !catalogError && (
-          <div className="space-y-6">
-            {groupedTests.map(([section, entries]) => (
-              <div key={section} className="rounded-2xl border border-border bg-card/70 p-5 shadow-card">
-                <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{section}</p>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  {entries.map((entry) => {
-                    const isRunning = runningKey === entry.key;
-                    return (
-                      <Button
-                        key={entry.key}
-                        variant="outline"
-                        className="flex justify-between gap-3 text-left"
-                        disabled={!!runningKey && !isRunning}
-                        onClick={() => handleRun(entry)}
-                      >
-                        <span className="text-sm font-semibold text-foreground">{entry.title}</span>
-                        <span className="text-xs font-mono text-muted-foreground">
-                          {isRunning ? <Loader2 className="h-3 w-3 animate-spin" /> : entry.method}
-                        </span>
-                      </Button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
+        <div className="space-y-2 rounded-2xl border border-border bg-card/70 p-5 shadow-card">
+          <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Contacts</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {[
+              { label: "Create contact", path: "/api/hubspot/test/contacts/create" },
+              { label: "Update contact", path: "/api/hubspot/test/contacts/update" },
+              { label: "Get contact", path: "/api/hubspot/test/contacts/get" },
+              { label: "Search contacts", path: "/api/hubspot/test/contacts/search" },
+              { label: "List contacts", path: "/api/hubspot/test/contacts/list" },
+              { label: "Batch read contacts", path: "/api/hubspot/test/contacts/batch-read" },
+              { label: "Batch create contacts", path: "/api/hubspot/test/contacts/batch-create" },
+              { label: "Batch update contacts", path: "/api/hubspot/test/contacts/batch-update" },
+              { label: "Batch upsert contacts", path: "/api/hubspot/test/contacts/batch-upsert" },
+              { label: "Associate contact → company", path: "/api/hubspot/test/contacts/associate" },
+            ].map((item) => {
+              const isRunning = runningKey === item.label;
+              const clickHandler =
+                item.label === "Get contact"
+                  ? () => handleGetContact()
+                  : () => callTestEndpoint(item.label, item.path);
+              return (
+                <Button
+                  key={item.label}
+                  variant="outline"
+                  className="justify-between text-left"
+                  disabled={!!runningKey || cmsTestRunning}
+                  onClick={clickHandler}
+                >
+                  <span>{item.label}</span>
+                  {isRunning && <Loader2 className="h-4 w-4 animate-spin" />}
+                </Button>
+              );
+            })}
           </div>
-        )}
+        </div>
 
         <div className="rounded-2xl border border-border bg-card/70 p-5 shadow-card">
           <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Latest response</p>
-          {lastEntry && (
-            <p className="mt-2 text-xs font-mono text-muted-foreground">
-              {lastEntry.method} {lastEntry.path}
-            </p>
-          )}
+          {lastLabel && <p className="text-xs text-muted-foreground">{lastLabel}</p>}
           <pre className="mt-3 max-h-96 overflow-y-auto rounded-xl border border-border bg-background px-4 py-3 text-xs text-muted-foreground">
-            {lastResponse || "Select an endpoint above to send a sample request."}
+            {lastResponse || "Click a button above to send a request."}
           </pre>
         </div>
       </div>

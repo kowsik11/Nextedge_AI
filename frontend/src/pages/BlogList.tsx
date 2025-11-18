@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button-enhanced";
-import { fetchHubSpotBlogs } from "@/lib/hubspotBlogs";
 import { useSupabaseAuth } from "@/providers/AuthProvider";
 
 type Blog = {
@@ -14,26 +13,32 @@ type Blog = {
 };
 
 const BlogListPage = () => {
-  const { user, session, loading } = useSupabaseAuth();
+  const { user, loading: authLoading } = useSupabaseAuth();
   const navigate = useNavigate();
-  const userId = user?.id;
-  const accessToken = session?.access_token;
 
   const [blogs, setBlogs] = useState<Blog[]>([]);
-  const [blogsLoading, setBlogsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (loading) return;
-    if (!userId) {
+    if (authLoading) return;
+    if (!user?.id) {
       setError("Please sign in to view HubSpot blogs.");
-      setBlogsLoading(false);
+      setLoading(false);
       return;
     }
 
     let active = true;
-    setBlogsLoading(true);
-    fetchHubSpotBlogs(userId, accessToken)
+    setLoading(true);
+    fetch("/api/hubspot/blogs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: user.id }),
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("Failed to load blogs");
+        return res.json();
+      })
       .then((payload) => {
         if (!active) return;
         setBlogs((payload.results ?? []) as Blog[]);
@@ -44,13 +49,13 @@ const BlogListPage = () => {
         setError(err.message);
       })
       .finally(() => {
-        if (active) setBlogsLoading(false);
+        if (active) setLoading(false);
       });
 
     return () => {
       active = false;
     };
-  }, [accessToken, loading, userId]);
+  }, [authLoading, user?.id]);
 
   return (
     <div className="min-h-screen bg-background px-6 py-8">
@@ -67,20 +72,20 @@ const BlogListPage = () => {
           </Button>
         </div>
 
-        {blogsLoading && (
+        {loading && (
           <div className="flex items-center justify-center gap-2 rounded-2xl border border-border bg-card/60 p-8 text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />
             Loading blogs...
           </div>
         )}
 
-        {!blogsLoading && error && (
+        {!loading && error && (
           <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-6 text-destructive">
             {error}
           </div>
         )}
 
-        {!blogsLoading && !error && (
+        {!loading && !error && (
           <div className="rounded-2xl border border-border bg-card/60">
             <div className="flex items-center justify-between border-b border-border px-6 py-4 text-sm text-muted-foreground">
               <span>{blogs.length} blogs</span>

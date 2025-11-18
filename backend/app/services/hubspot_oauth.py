@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import urllib.parse
+
 import httpx
 from fastapi import HTTPException
 from typing import Any, Dict
@@ -7,11 +9,26 @@ from typing import Any, Dict
 from ..config import settings
 from ..storage.supabase_token_store import hubspot_token_store
 
+# Temporary debug to verify loaded scopes from .env
+print("Loaded HubSpot scopes:", settings.hubspot_scope)
+print("Loaded optional:", settings.hubspot_optional_scope)
+
 
 def build_auth_url(state: str) -> str:
-  scopes = settings.hubspot_scope
+  scope = urllib.parse.quote(settings.hubspot_scope)
+  optional_scope = urllib.parse.quote(settings.hubspot_optional_scope) if settings.hubspot_optional_scope else ""
   base = str(settings.hubspot_auth_base).rstrip("/")
-  return f"{base}/authorize?client_id={settings.hubspot_client_id}&redirect_uri={settings.hubspot_redirect_uri}&scope={scopes}&response_type=code&state={state}"
+  redirect_uri = urllib.parse.quote(str(settings.hubspot_redirect_uri))
+  url = (
+    f"{base}/authorize?client_id={settings.hubspot_client_id}"
+    f"&redirect_uri={redirect_uri}"
+    f"&scope={scope}"
+    f"&response_type=code"
+    f"&state={state}"
+  )
+  if optional_scope:
+    url = f"{url}&optional_scope={optional_scope}"
+  return url
 
 
 def exchange_code(user_id: str, code: str) -> Dict[str, Any]:

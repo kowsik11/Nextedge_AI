@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict
 
+import requests
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from httpx import QueryParams
@@ -14,8 +14,6 @@ from ..services.hubspot_client import hubspot_client
 from ..services.hubspot_oauth import get_hubspot_token, exchange_code as hubspot_exchange_code
 from ..services.oauth_state import sign_state, verify_state
 from ..services.token_service import delete_tokens
-from ..tests_catalog import HUBSPOT_TESTS, HUBSPOT_TEST_MAP
-from ..tests_samples import HUBSPOT_TEST_SAMPLES
 from ..auth import resolve_user_id
 
 router = APIRouter(prefix="/api/hubspot", tags=["hubspot"])
@@ -31,9 +29,62 @@ CMS_BLOG_POST_SAMPLE: Dict[str, Any] = {
   "postBody": "<p>This is a sample payload triggered from the Safe Point control panel.</p>",
 }
 
+# Contacts sample payloads
+CONTACT_CREATE_SAMPLE: Dict[str, Any] = {
+  "properties": {
+    "email": "test+dummy@example.com",
+    "firstname": "Test",
+    "lastname": "Contact",
+    "phone": "+18885551234",
+    "company": "Safe Point",
+    "website": "example.com",
+  }
+}
+
+CONTACT_UPDATE_ID = "1234567890"
+CONTACT_UPDATE_SAMPLE: Dict[str, Any] = {"properties": {"firstname": "Updated"}}
+
+CONTACT_SEARCH_SAMPLE: Dict[str, Any] = {
+  "filterGroups": [
+    {"filters": [{"propertyName": "email", "operator": "EQ", "value": "test+dummy@example.com"}]}
+  ]
+}
+
+CONTACT_BATCH_READ_SAMPLE: Dict[str, Any] = {
+  "properties": ["email", "firstname", "lastname"],
+  "inputs": [{"id": "1234567890"}, {"id": "9876543210"}],
+}
+
+CONTACT_BATCH_CREATE_SAMPLE: Dict[str, Any] = {
+  "inputs": [
+    {"properties": {"email": "batch1@example.com", "firstname": "Batch", "lastname": "One"}},
+    {"properties": {"email": "batch2@example.com", "firstname": "Batch", "lastname": "Two"}},
+  ]
+}
+
+CONTACT_BATCH_UPDATE_SAMPLE: Dict[str, Any] = {
+  "inputs": [
+    {"id": "1234567890", "properties": {"favorite_food": "burger"}},
+    {"id": "9876543210", "properties": {"favorite_food": "donut"}},
+  ]
+}
+
+CONTACT_BATCH_UPSERT_SAMPLE: Dict[str, Any] = {
+  "inputs": [
+    {"id": "upsert1@example.com", "idProperty": "email", "properties": {"phone": "+12345670000"}},
+    {"id": "upsert2@example.com", "idProperty": "email", "properties": {"phone": "+12345671111"}},
+  ]
+}
+
+CONTACT_ASSOCIATE_PATH = "/crm/v3/objects/contacts/1234567890/associations/companies/1111111111/279"
+
 
 class CmsBlogPostTestRequest(BaseModel):
   user_id: str | None = None
+
+class ContactTestRequest(BaseModel):
+  user_id: str | None = None
+  id: str | None = None
 
 class DisconnectRequest(BaseModel):
   user_id: str | None = None
@@ -41,22 +92,6 @@ class DisconnectRequest(BaseModel):
 
 class BlogAuthorsRequest(BaseModel):
   user_id: str | None = None
-
-
-class BlogPostScheduleRequest(BaseModel):
-  user_id: str | None = None
-  post_id: str
-  publish_date: str
-
-
-class HubSpotTestRunRequest(BaseModel):
-  user_id: str | None = None
-  key: str
-  path_override: Optional[str] = None
-  payload: Optional[str] = None
-  payload_type: Optional[Literal["json", "form"]] = None
-  query: Optional[Dict[str, Any]] = None
-  headers: Optional[Dict[str, str]] = None
 
 
 @router.get("/connect")
@@ -135,69 +170,79 @@ def list_blogs(body: BlogAuthorsRequest, request: Request):
   return hubspot_client.list_blogs(resolved_user_id)
 
 
-@router.post("/blogs/posts/schedule")
-def schedule_blog_post(body: BlogPostScheduleRequest, request: Request):
+# Contacts test endpoints
+@router.post("/test/contacts/create")
+def test_contacts_create(body: ContactTestRequest, request: Request):
   resolved_user_id = resolve_user_id(request, body.user_id)
-  logger.info("Scheduling blog post %s for %s by %s", body.post_id, body.publish_date, resolved_user_id)
-  return hubspot_client.schedule_blog_post(resolved_user_id, body.post_id, body.publish_date)
+  return hubspot_client.create_contact(resolved_user_id, CONTACT_CREATE_SAMPLE)
 
 
-@router.get("/tests/catalog")
-def tests_catalog():
-  return {"results": HUBSPOT_TESTS}
-
-
-@router.post("/tests/run")
-def tests_run(body: HubSpotTestRunRequest, request: Request):
+@router.post("/test/contacts/update")
+def test_contacts_update(body: ContactTestRequest, request: Request):
   resolved_user_id = resolve_user_id(request, body.user_id)
-  entry = HUBSPOT_TEST_MAP.get(body.key)
-  if not entry:
-    raise HTTPException(status_code=404, detail="Test key not found.")
+  return hubspot_client.update_contact(resolved_user_id, CONTACT_UPDATE_ID, CONTACT_UPDATE_SAMPLE)
 
-  sample = HUBSPOT_TEST_SAMPLES.get(body.key, {})
-  path = body.path_override or sample.get("path") or entry["path"]
 
-  payload_type = body.payload_type or sample.get("payload_type")
-  json_payload: Optional[Dict[str, Any]] = None
-  form_payload: Optional[str] = None
-  if body.payload:
-    payload_type = body.payload_type or payload_type or "json"
-    if payload_type == "json":
-      try:
-        json_payload = json.loads(body.payload)
-      except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid JSON payload: {exc}") from exc
-    else:
-      form_payload = body.payload
-  elif sample.get("payload") is not None:
-    payload_type = payload_type or ("json" if isinstance(sample["payload"], dict) else "form")
-    if payload_type == "form":
-      form_payload = sample["payload"]
-    else:
-      json_payload = sample["payload"]
+@router.post("/test/contacts/get")
+def test_contacts_get(body: ContactTestRequest, request: Request):
+  resolved_user_id = resolve_user_id(request, body.user_id)
+  if not body.id or not body.id.strip():
+    raise HTTPException(status_code=400, detail="missing id")
+  token_record = get_hubspot_token(resolved_user_id)
+  token = token_record["access_token"]
+  hubspot_url = f"{str(settings.hubspot_api_base).rstrip('/')}/crm/v3/objects/contacts/{body.id}"
+  print("GET HubSpot URL:", hubspot_url, "token_first8:", token[:8])
+  response = requests.get(hubspot_url, headers={"Authorization": f"Bearer {token}"})
+  if response.status_code == 200:
+    return response.json()
+  if response.status_code == 404:
+    raise HTTPException(status_code=404, detail="Contact not found on HubSpot")
+  try:
+    payload = response.json()
+  except Exception:
+    payload = response.text
+  if response.status_code == 403:
+    raise HTTPException(status_code=403, detail=payload)
+  raise HTTPException(status_code=response.status_code, detail=payload)
 
-  query: Dict[str, Any] = {}
-  if isinstance(sample.get("query"), dict):
-    query.update(sample["query"])
-  if body.query:
-    query.update(body.query)
 
-  headers: Dict[str, str] = {}
-  if isinstance(sample.get("headers"), dict):
-    headers.update(sample["headers"])
-  if body.headers:
-    headers.update(body.headers)
-  if payload_type == "form":
-    headers = {"Content-Type": "application/x-www-form-urlencoded", **headers}
+@router.post("/test/contacts/search")
+def test_contacts_search(body: ContactTestRequest, request: Request):
+  resolved_user_id = resolve_user_id(request, body.user_id)
+  return hubspot_client.search_contacts(resolved_user_id, CONTACT_SEARCH_SAMPLE)
 
-  result = hubspot_client.execute_raw(
-    resolved_user_id,
-    entry["method"],
-    path,
-    params=query or None,
-    json=json_payload,
-    data=form_payload,
-    headers=headers,
-  )
 
-  return {"test": entry, "result": result}
+@router.post("/test/contacts/list")
+def test_contacts_list(body: ContactTestRequest, request: Request):
+  resolved_user_id = resolve_user_id(request, body.user_id)
+  return hubspot_client.list_contacts(resolved_user_id, params={"limit": 5})
+
+
+@router.post("/test/contacts/batch-read")
+def test_contacts_batch_read(body: ContactTestRequest, request: Request):
+  resolved_user_id = resolve_user_id(request, body.user_id)
+  return hubspot_client.batch_read_contacts(resolved_user_id, CONTACT_BATCH_READ_SAMPLE)
+
+
+@router.post("/test/contacts/batch-create")
+def test_contacts_batch_create(body: ContactTestRequest, request: Request):
+  resolved_user_id = resolve_user_id(request, body.user_id)
+  return hubspot_client.batch_create_contacts(resolved_user_id, CONTACT_BATCH_CREATE_SAMPLE)
+
+
+@router.post("/test/contacts/batch-update")
+def test_contacts_batch_update(body: ContactTestRequest, request: Request):
+  resolved_user_id = resolve_user_id(request, body.user_id)
+  return hubspot_client.batch_update_contacts(resolved_user_id, CONTACT_BATCH_UPDATE_SAMPLE)
+
+
+@router.post("/test/contacts/batch-upsert")
+def test_contacts_batch_upsert(body: ContactTestRequest, request: Request):
+  resolved_user_id = resolve_user_id(request, body.user_id)
+  return hubspot_client.batch_upsert_contacts(resolved_user_id, CONTACT_BATCH_UPSERT_SAMPLE)
+
+
+@router.post("/test/contacts/associate")
+def test_contacts_associate(body: ContactTestRequest, request: Request):
+  resolved_user_id = resolve_user_id(request, body.user_id)
+  return hubspot_client.associate_contact(resolved_user_id, CONTACT_ASSOCIATE_PATH)

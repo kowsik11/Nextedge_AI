@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button-enhanced";
-import { fetchHubSpotBlogAuthors } from "@/lib/hubspotAuthors";
 import { cn } from "@/lib/utils";
 import { useSupabaseAuth } from "@/providers/AuthProvider";
 
@@ -16,26 +15,32 @@ type Author = {
 };
 
 const BlogAuthorsPage = () => {
-  const { user, session, loading } = useSupabaseAuth();
+  const { user, loading: authLoading } = useSupabaseAuth();
   const navigate = useNavigate();
-  const userId = user?.id;
-  const accessToken = session?.access_token;
   const [authors, setAuthors] = useState<Author[]>([]);
-  const [authorsLoading, setAuthorsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (loading) return;
-    if (!userId) {
+    if (authLoading) return;
+    if (!user?.id) {
       setError("Please sign in to view HubSpot authors.");
-      setAuthorsLoading(false);
+      setLoading(false);
       return;
     }
 
     let active = true;
-    setAuthorsLoading(true);
+    setLoading(true);
     setError(null);
-    fetchHubSpotBlogAuthors(userId, accessToken)
+    fetch("/api/hubspot/blog-authors", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: user.id }),
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("Failed to load authors");
+        return res.json();
+      })
       .then((payload) => {
         if (!active) return;
         const items = (payload.results ?? []) as Author[];
@@ -46,13 +51,13 @@ const BlogAuthorsPage = () => {
         setError(err.message);
       })
       .finally(() => {
-        if (active) setAuthorsLoading(false);
+        if (active) setLoading(false);
       });
 
     return () => {
       active = false;
     };
-  }, [accessToken, loading, userId]);
+  }, [authLoading, user?.id]);
 
   return (
     <div className="min-h-screen bg-background px-6 py-8">
@@ -61,7 +66,7 @@ const BlogAuthorsPage = () => {
           <div>
             <p className="text-sm font-semibold uppercase tracking-wide text-primary">HubSpot</p>
             <h1 className="text-3xl font-semibold text-foreground">Blog authors</h1>
-            <p className="text-sm text-muted-foreground">Fetched directly from /cms/v3/blog-authors.</p>
+            <p className="text-sm text-muted-foreground">Fetched directly from /cms/v3/blogs/authors.</p>
           </div>
           <Button variant="hero-outline" size="sm" onClick={() => navigate("/home")}>
             <ArrowLeft className="mr-2 h-4 w-4" />
@@ -69,20 +74,18 @@ const BlogAuthorsPage = () => {
           </Button>
         </div>
 
-        {authorsLoading && (
+        {loading && (
           <div className="flex items-center justify-center gap-2 rounded-2xl border border-border bg-card/60 p-8 text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />
             Loading authors...
           </div>
         )}
 
-        {!authorsLoading && error && (
-          <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-6 text-destructive">
-            {error}
-          </div>
+        {!loading && error && (
+          <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-6 text-destructive">{error}</div>
         )}
 
-        {!authorsLoading && !error && (
+        {!loading && !error && (
           <div className="rounded-2xl border border-border bg-card/60">
             <div className="flex items-center justify-between border-b border-border px-6 py-4 text-sm text-muted-foreground">
               <span>{authors.length} authors</span>
