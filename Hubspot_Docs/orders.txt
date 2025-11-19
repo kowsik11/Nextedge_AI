@@ -1,0 +1,525 @@
+HubSpot Orders & Commerce Payments API Reference
+===============================================
+
+This file restructures the scraped HubSpot documentation into a consistent reference without introducing any new facts. All sample snippets on the original page included the UI controls "Report incorrect code", "Copy", and "Ask AI".
+
+Authentication & Required Headers
+---------------------------------
+- `Authorization: Bearer YOUR_ACCESS_TOKEN`
+- `Content-Type: application/json`
+- Authentication methods: OAuth 2.0 or Private App Access Token.
+
+Orders API
+----------
+
+### 1. List All Orders
+- Purpose: Retrieve all orders.
+- Method: `GET`
+- Endpoint: `https://api.hubapi.com/crm/v3/objects/orders`
+- Required header: `Authorization: Bearer YOUR_ACCESS_TOKEN`
+- Example request:
+
+```bash
+curl --request GET \
+  --url 'https://api.hubapi.com/crm/v3/objects/orders?limit=10' \
+  --header 'Authorization: Bearer YOUR_ACCESS_TOKEN'
+```
+
+### 2. Retrieve an Order by ID
+- Purpose: Get details for a specific order.
+- Method: `GET`
+- Endpoint: `https://api.hubapi.com/crm/v3/objects/orders/{orderId}`
+- Required header: `Authorization: Bearer YOUR_ACCESS_TOKEN`
+- Note: Replace `12345` with the order's ID.
+- Example request:
+
+```bash
+curl --request GET \
+  --url 'https://api.hubapi.com/crm/v3/objects/orders/12345' \
+  --header 'Authorization: Bearer YOUR_ACCESS_TOKEN'
+```
+
+### 3. Create a New Order
+- Purpose: Create a new order record.
+- Method: `POST`
+- Endpoint: `https://api.hubapi.com/crm/v3/objects/orders`
+- Required headers:
+  - `Content-Type: application/json`
+  - `Authorization: Bearer YOUR_ACCESS_TOKEN`
+- Example payload:
+
+```json
+{
+  "properties": {
+    "order_number": "12345",
+    "status": "completed",
+    "total_amount": 100.00
+  }
+}
+```
+
+- Example request:
+
+```bash
+curl --request POST \
+  --url 'https://api.hubapi.com/crm/v3/objects/orders' \
+  --header 'Content-Type: application/json' \
+  --header 'Authorization: Bearer YOUR_ACCESS_TOKEN' \
+  --data '{
+    "properties": {
+      "order_number": "12345",
+      "status": "completed",
+      "total_amount": 100.00
+    }
+  }'
+```
+
+### 4. Update an Order
+- Purpose: Update properties for an existing order.
+- Method: `PATCH`
+- Endpoint: `https://api.hubapi.com/crm/v3/objects/orders/{orderId}`
+- Required headers:
+  - `Content-Type: application/json`
+  - `Authorization: Bearer YOUR_ACCESS_TOKEN`
+- Example payload:
+
+```json
+{
+  "properties": {
+    "status": "refunded"
+  }
+}
+```
+
+- Example request:
+
+```bash
+curl --request PATCH \
+  --url 'https://api.hubapi.com/crm/v3/objects/orders/12345' \
+  --header 'Content-Type: application/json' \
+  --header 'Authorization: Bearer YOUR_ACCESS_TOKEN' \
+  --data '{
+    "properties": {
+      "status": "refunded"
+    }
+  }'
+```
+
+### 5. Search for Orders
+- Purpose: Find orders by criteria.
+- Method: `POST`
+- Endpoint: `https://api.hubapi.com/crm/v3/objects/orders/search`
+- Required headers:
+  - `Content-Type: application/json`
+  - `Authorization: Bearer YOUR_ACCESS_TOKEN`
+- Example payload:
+
+```json
+{
+  "filterGroups": [
+    {
+      "filters": [
+        {
+          "propertyName": "order_number",
+          "operator": "EQ",
+          "value": "12345"
+        }
+      ]
+    }
+  ]
+}
+```
+
+HubSpot Docs UI Snapshot (Captured Text)
+---------------------------------------
+
+**Quick actions**
+- Skip to main content
+- HubSpot docs home page (light logo)
+- Search... (Ctrl K)
+- Ask AI
+- Changelog
+- Log Out
+- Create developer account
+
+**Primary navigation**
+- Home
+- Get Started
+- Apps
+- CMS
+- APIs
+- Developer Tooling
+
+**CRM navigation**
+- Understanding the CRM
+- Search
+- CRM embed
+- Appointments: Basic, Batch, Search
+- Associations v3: API Guide, Batch
+- Associations v3 Schema: Types
+- Associations v4: API Guide, Basic, Batch, Report
+- Associations v4 Schema: Definition Configurations, Definitions
+- Carts (NEW): API Guide, Basic, Batch, Search
+- Commerce Payments: API Guide, Basic, Batch, Search
+- Commerce Subscriptions: API Guide, Basic, Batch, Search
+
+**Lifecycle navigation**
+- Companies: API Guide, Basic, Batch, Search
+- Contacts: API Guide, Basic, Batch, Search
+- Courses: Basic, Batch, Search
+- Custom Objects: API Guide, Basic, Batch, Search
+- Deals: API Guide, Basic, Batch, Search
+- Discounts: API Guide, Basic, Batch, Search
+- Exports: API Guide, Public Exports
+- Fees: API Guide, Basic, Batch, Search
+- Goals (NEW): API Guide (NEW), Basic, Batch, Search
+- Imports: API Guide, Core, Public Imports
+- Invoices: API Guide, Basic, Batch, Search
+- Leads: API Guide, Basic, Batch, Search
+- Line Items: API Guide, Basic, Batch, Search
+- Lists: API Guide, List filters, Migrate from v1, Lists, Memberships, List Management, ID Mapping, Join Order
+- Listings: Basic, Batch, Search
+- Objects: Using object APIs, Basic, Batch, Search
+- Orders (NEW): API Guide, Basic, Batch, Search
+- Owners: API Guide, Owners, Partner Clients, Associations, Basic, Batch, Search
+- Partner Services: Associations, Basic, Batch, Search
+- Pipelines: API Guide, Pipelines, Pipeline Stages, Pipeline Audits, Pipeline Stage Audits
+- Products: API Guide, Basic, Batch, Search
+- Projects: API Guide
+- Properties: API Guide, Core, Batch, Groups
+- Property Validations: API Guide, Public Property Validations
+- Quotes: API Guide, Basic, Batch, Search
+- Sensitive data: API guide
+- Services: Basic, Batch, Search
+- Taxes: API Guide, Basic, Batch, Search
+- Tickets: API Guide, Basic, Batch, Search
+- Communications: API Guide, Basic, Batch, Search
+- Deal Splits: API Guide, Batch
+- Feedback Submissions: API Guide, Basic, POST "Read a batch of feedback submissions by internal ID, or unique property values", POST "Search for feedback submissions using specified criteria."
+- Limits Tracking: API Guide, Limits
+- Object Library: API Guide
+- Enablement
+- Schemas
+- Core
+- English
+
+Commerce Payments API
+---------------------
+
+### Overview
+Retrieve information about payments (last modified September 26, 2025). If payment processing is set up through HubSpot payments or Stripe payment processing, this API can create payments, update them, retrieve payment data, delete payments, create payment records for external transactions, associate payments with invoices, and retrieve refunded payments.
+
+### Limitations
+- The account must be set up to collect payments through HubSpot payments or Stripe payment processing.
+- Payments created through Commerce Hub payment processing (HubSpot payments or Stripe payment processing) cannot be modified or deleted via this API.
+- This API cannot create payments intended for payment processing; it tracks payment data that represents revenue received outside of Commerce Hub.
+
+### Create payments
+- Make a `POST` request to `/crm/v3/objects/commerce_payments`.
+- Minimum body contents: a `properties` object containing `hs_initial_amount` and `hs_initiated_date`. Add other properties as needed (read-only properties cannot be set).
+- Include an `associations` array to associate the payment with CRM records (e.g., contacts, orders).
+- Example request body:
+
+```json
+{
+  "properties": {
+    "hs_initial_amount": "99.99",
+    "hs_initiated_date": "2024-03-27T18:04:11.823Z",
+    "hs_customer_email": "customer@example.com"
+  },
+  "associations": [
+    {
+      "to": {
+        "id": 70791348501
+      },
+      "types": [
+        {
+          "associationCategory": "HUBSPOT_DEFINED",
+          "associationTypeId": 387
+        }
+      ]
+    },
+    {
+      "to": {
+        "id": 44446244097
+      },
+      "types": [
+        {
+          "associationCategory": "HUBSPOT_DEFINED",
+          "associationTypeId": 542
+        }
+      ]
+    }
+  ]
+}
+```
+
+- Field descriptions:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `properties` | Object | Key-value pairs for each property to set. |
+| `associations` | Array | Contains association details. |
+| `to` | Object | Contains the ID of the CRM record to associate the payment with. |
+| `types` | Array | Contains association type details. |
+| `associationCategory` | String | HUBSPOT_DEFINED or USER_DEFINED. |
+| `associationTypeId` | Number | Unique identifier for the association type between the payment and the other object. |
+
+- Response example:
+
+```json
+{
+  "id": "383552769679",
+  "properties": {
+    "hs_created_by_user_id": "8675309",
+    "hs_createdate": "2025-06-10T21:39:48.394Z",
+    "hs_customer_email": "customer@example.com",
+    "hs_has_associated_invoice": "false",
+    "hs_hubspot_payments_enabled": "false",
+    "hs_initial_amount": "49.99",
+    "hs_initial_amount_in_portal_currency": "49.99",
+    "hs_initial_amount_in_settlement_currency": "49.99",
+    "hs_initiated_date": "2024-03-27T18:04:11.823Z",
+    "hs_lastmodifieddate": "2025-06-10T21:39:48.394Z",
+    "hs_latest_status": "processing",
+    "hs_net_amount": "49.99",
+    "hs_net_amount_after_refunds": "49.99",
+    "hs_net_amount_in_portal_currency": "49.99",
+    "hs_net_amount_in_settlement_currency": "49.99",
+    "hs_number_of_associated_invoices": "0",
+    "hs_object_id": "383552769679",
+    "hs_object_source": "CRM_UI",
+    "hs_object_source_id": "userId:959199",
+    "hs_object_source_label": "CRM_UI",
+    "hs_object_source_user_id": "959199",
+    "hs_payment_creation_method": "OTHER",
+    "hs_payment_id": "9743960263",
+    "hs_presentment_to_portal_currency_dated_exchange_rate": "1",
+    "hs_total_discounts_amount": "0",
+    "hs_total_discounts_amount_in_portal_currency": "0",
+    "hs_updated_by_user_id": "959199"
+  },
+  "createdAt": "2025-06-10T21:39:48.394Z",
+  "updatedAt": "2025-06-10T21:39:48.394Z",
+  "archived": false
+}
+```
+
+### Retrieve payments
+- Retrieve all payments: `GET /crm/v3/objects/commerce_payments`.
+- Retrieve a specific payment: `GET /crm/v3/objects/commerce_payments/{paymentId}` (example: `/crm/v3/objects/commerce_payments/44446244097`).
+- Retrieve payments meeting criteria: `POST /crm/v3/objects/commerce_payments/search` with filters.
+- Default responses include properties such as create date and last modified date.
+- Example default response:
+
+```json
+{
+  "id": "44446244097",
+  "properties": {
+    "hs_createdate": "2023-03-08T14:54:17.333Z",
+    "hs_lastmodifieddate": "2024-03-01T22:33:09.011Z",
+    "hs_object_id": "44446244097"
+  },
+  "createdAt": "2023-03-08T14:54:17.333Z",
+  "updatedAt": "2024-03-01T22:33:09.011Z",
+  "archived": false
+}
+```
+
+- To return specific properties, add a `properties` query parameter with comma-separated names (example request: `/crm/v3/objects/commerce_payments?properties=hs_customer_email,hs_latest_status`).
+- Example response with additional properties:
+
+```json
+{
+  "id": "40744976671",
+  "properties": {
+    "hs_createdate": "2022-09-02T15:03:40.828Z",
+    "hs_customer_email": "name@emailaddress.com",
+    "hs_lastmodifieddate": "2024-02-27T15:03:53.620Z",
+    "hs_object_id": "40744976671",
+    "hs_latest_status": "succeeded"
+  },
+  "createdAt": "2022-09-02T15:03:40.828Z",
+  "updatedAt": "2024-02-27T15:03:53.620Z",
+  "archived": false
+}
+```
+
+### Search for payments by properties
+- Endpoint: `POST /crm/v3/objects/commerce_payments/search`.
+- Include filter criteria in the request body. The `filters` array defines search criteria, and the `properties` array sets which properties to return.
+- Example body (search for refunded payments):
+
+```json
+{
+  "filterGroups": [
+    {
+      "filters": [
+        {
+          "propertyName": "hs_latest_status",
+          "value": "refunded",
+          "operator": "EQ"
+        }
+      ]
+    }
+  ],
+  "properties": [
+    "hs_latest_status",
+    "hs_customer_email"
+  ]
+}
+```
+
+### Update payments
+- Endpoint: `PATCH /crm/v3/objects/commerce_payments/{paymentId}`.
+- Include a `properties` object in the request body with only the fields that need updating.
+- Example body (change status to `succeeded`):
+
+```json
+{
+  "properties": {
+    "hs_latest_status": "succeeded"
+  }
+}
+```
+
+- Example response:
+
+```json
+{
+  "id": "44446244097",
+  "properties": {
+    "hs_createdate": "2023-03-08T14:54:17.333Z",
+    "hs_lastmodifieddate": "2024-03-27T20:03:05.890Z",
+    "hs_latest_status": "succeeded",
+    "hs_object_id": "44446244097"
+  },
+  "createdAt": "2023-03-08T14:54:17.333Z",
+  "updatedAt": "2024-03-27T20:03:05.890Z",
+  "archived": false
+}
+```
+
+### Delete payments
+- Endpoint: `DELETE /crm/v3/objects/commerce_payments/{paymentId}`.
+- Deletion moves the payment to the recycling bin for 90 days; after 90 days the payment is permanently deleted.
+
+### Properties
+- Payment details are stored in payment properties. HubSpot provides default properties, and you can also create additional ones.
+- Retrieve all payment properties via `GET /crm/v3/properties/commerce_payments`.
+- Writable properties:
+  - `hs_currency_code` (enumeration): Currency code for the payment; options include the currencies configured for the account.
+  - `hs_customer_email` (string): Buyer's email address.
+  - `hs_fees_amount` (number): Total amount HubSpot charged to process the payment.
+  - `hs_initial_amount` (number): Total amount the customer was charged.
+  - `hs_initiated_date` (datetime): Date the payment was initiated.
+  - `hs_internal_comment` (string): Internal note/comment set when creating an external payment record from an invoice.
+  - `hs_latest_status` (enumeration): Most recently set payment status. Options: `processing`, `succeeded`, `failed`, `partially_refunded`, `refunded`, `processing_refund`, `disputed_won`, `disputed_lost`, `disputed_action_required`, `disputed_awaiting_decision`.
+  - `hs_payment_method_bank_or_issuer` (string): Name of the bank or card issuer.
+  - `hs_payment_method_last_4` (string): Last four digits of the payment method used.
+  - `hs_payment_method_type` (enumeration): Payment method used (options: `card`, `ach`, `cash`, `check`, `wire_transfer`, `other`, `sepa`, `bacs`, `pads`).
+  - `hs_payout_date` (datetime): Date a bank deposit associated with this payment was made.
+  - `hs_processor_type` (enumeration): Processor used to collect the payment. Options: `hs_payments`, `byo_stripe`, `none`, `quickbooks`, `xero`.
+  - `hs_reference_number` (string): Reference number associated with the external payment.
+  - `hs_refunds_amount` (number): Total amount refunded to the customer.
+  - `hs_billing_address_city` (string): City for the payment method used.
+  - `hs_billing_address_country` (string): Country for the payment method used.
+  - `hs_billing_address_line_1` (string): Street address for the payment method used.
+  - `hs_billing_address_line_2` (string): Apartment/unit/building for the payment method used (optional).
+  - `hs_billing_address_state` (string): State for the payment method used.
+  - `hs_billing_address_zip` (string): ZIP code for the payment method used.
+  - `hs_line_item_discounts_amount` (number): Discount amount on the line items.
+  - `hs_shipping_address_city` (string): City of the shipping address associated with the payment.
+  - `hs_shipping_address_country` (string): Country of the shipping address associated with the payment.
+  - `hs_shipping_address_line_1` (string): Street address of the shipping address associated with the payment.
+  - `hs_shipping_address_line_2` (string): Apartment/unit/building of the shipping address associated with the payment.
+  - `hs_shipping_address_state` (string): State of the shipping address associated with the payment.
+  - `hs_shipping_address_zip` (string): ZIP code of the shipping address associated with the payment.
+  - `hs_shipping_ship_to_name` (string): Name associated with the payment's shipping details.
+
+### Read-only properties
+- The following are reserved for Commerce Hub payment processing and cannot be set via the API:
+  - `hs_digital_wallet_type` (enumeration): Digital wallet used. Options: `apple_pay`, `google_pay`, `amex_express_checkout`, `link`, `masterpass`, `samsung_pay`, `visa_checkout`.
+  - `hs_fees_amount_in_settlement_currency` (number): Processing fees in the settlement currency.
+  - `hs_line_item_discounts_amount_in_portal_currency` (number): Line item discount amount in the account's currency.
+  - `hs_max_refundable_amount_in_portal_currency` (number): Maximum refundable amount in the account's default currency.
+  - `hs_net_amount_in_settlement_currency` (number): Total amount collected after fees in the settlement currency.
+  - `hs_order_discount_code` (string): Discount code used.
+  - `hs_order_discount_amount` (number): Discount amount on the order.
+  - `hs_order_discount_percentage` (number): Discount percentage on the order.
+  - `hs_payment_id` (string): Payment ID.
+  - `hs_payment_method` (enumeration): How the customer made the payment (options depend on enabled payment methods).
+  - `hs_payment_source_app` (enumeration): Source that created the payment. Options: `SALES_CHECKOUT`, `QUOTE`, `INVOICE`, `MIGRATION`, `SUBSCRIPTION`.
+  - `hs_payment_source_id` (string): ID of the source that created the payment.
+  - `hs_payment_source_name` (string): Internal name of the source that created the payment.
+  - `hs_payment_source_url` (string): URL of the source that created the payment.
+  - `hs_payment_type` (enumeration): Payment type or line item type (`one_time_or_initial` or `recurring`).
+  - `hs_platform_fee` (number): Total amount charged to facilitate the payment.
+  - `hs_platform_fee_in_portal_currency` (number): Platform fee in the account's default currency.
+  - `hs_platform_fee_in_settlement_currency` (number): Platform fee in the settlement currency.
+  - `hs_refunds_amount_in_portal_currency` (number): Amount refunded in the account's default currency.
+  - `hs_settlement_currency_code` (enumeration): Settlement currency code (options include the currencies configured for the account).
+  - `hs_total_discounts_amount` (number): Sum of all discounts on a payment collected from the buyer (includes line-item and order discounts).
+
+### Associations
+- Include an `associations` array when creating a payment, or use the Associations API to update associations later.
+- Payments can be associated with:
+  - Companies: association type `389`
+  - Contacts: `387`
+  - Deals: `391`
+  - Discounts: `428`
+  - Feedback submissions: `1170`
+  - Invoices: `542`
+  - Line items: `395`
+  - Orders: `524`
+  - Payment links: `476`
+  - Quotes: `397`
+  - Subscriptions: `393`
+- Retrieve association type values via `GET /crm/v4/associations/commerce_payments/{toObjectType}/labels`.
+- Note: Line items associated with different objects return different IDs because HubSpot creates copies rather than reusing a single line item.
+- Update associations: `PUT /crm/v3/objects/commerce_payments/{paymentId}/associations/{toObjectType}/{toObjectId}/{associationTypeId}` (example to associate a payment with an order: `/crm/v3/objects/commerce_payments/{paymentId}/associations/order/{orderId}/523`).
+- Remove associations: `DELETE /crm/v3/objects/commerce_payments/{paymentId}/associations/{toObjectType}/{toObjectId}/{associationTypeId}`.
+
+### Retrieving a payment with associated contact
+- Endpoint: `GET crm/v3/objects/commerce_payments/{contactId}/associations/contact`.
+- Response lists currently associated contact IDs plus association meta.
+- Example response:
+
+```json
+{
+  "results": [
+    {
+      "id": "301",
+      "type": "commerce_payment_to_contact"
+    }
+  ]
+}
+```
+
+- Use the returned contact ID to query the Contacts API (`GET crm/v3/objects/contacts/{contactId}`) for additional details.
+- Example contact response:
+
+```json
+{
+  "id": "301",
+  "properties": {
+    "createdate": "2022-09-27T13:13:31.004Z",
+    "email": "tom.bombadil@oldforest.com",
+    "firstname": "Tom",
+    "hs_object_id": "301",
+    "lastmodifieddate": "2023-11-07T17:14:00.841Z",
+    "lastname": "Bombadil"
+  },
+  "createdAt": "2022-09-27T13:13:31.004Z",
+  "updatedAt": "2023-11-07T17:14:00.841Z",
+  "archived": false
+}
+```
+
+Feedback & Footer Text
+----------------------
+- "Was this page helpful?" - Yes / No
+- Navigation links: `POST /crm/v3/objects/carts/search`, Previous, List, Next
+- Social links: facebook, instagram, youtube, x, linkedin, medium
+- Footer: HubSpot - Copyright (c) 2025 HubSpot, Inc
+- Policies: Privacy Policy, Security, Website Accessibility, Manage Cookies

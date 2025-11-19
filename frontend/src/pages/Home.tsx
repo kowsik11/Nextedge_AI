@@ -391,7 +391,12 @@ const Home = () => {
       if (res.ok) {
         setHubspotStatus(null);
         setHubspotState("disconnected");
-        console.log("HubSpot disconnected");
+        localStorage.removeItem("hubspot_token_preview");
+        localStorage.removeItem("hubspot_connection");
+        sessionStorage.removeItem("hubspot_token_preview");
+        document.cookie = "hubspot_token_preview=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
+        document.cookie = "hubspot_connection=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
+        console.log("HubSpot disconnected (frontend cleared)");
         navigate("/");
       }
     } catch (error) {

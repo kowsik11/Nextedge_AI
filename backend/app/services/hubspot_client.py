@@ -226,6 +226,347 @@ class HubSpotClient:
       raise HTTPException(status_code=502, detail="Empty response from HubSpot")
     return response
 
+  # Companies test helpers
+  def create_company(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/companies", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def update_company(self, user_id: str, company_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("patch", f"/crm/v3/objects/companies/{company_id}", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def get_company(self, user_id: str, company_id: str) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("get", f"/crm/v3/objects/companies/{company_id}", token)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def search_companies(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/companies/search", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def list_companies(self, user_id: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("get", "/crm/v3/objects/companies", token, params=params or {"limit": 5})
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def batch_read_companies(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/companies/batch/read", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def batch_create_companies(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/companies/batch/create", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def batch_update_companies(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/companies/batch/update", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def batch_upsert_companies(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/companies/batch/upsert", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def associate_company(self, user_id: str, path: str) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("put", path, token)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  # Deals test helpers
+  def create_deal(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/deals", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def update_deal(self, user_id: str, deal_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("patch", f"/crm/v3/objects/deals/{deal_id}", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def get_deal(self, user_id: str, deal_id: str) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("get", f"/crm/v3/objects/deals/{deal_id}", token)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def search_deals(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/deals/search", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def list_deals(self, user_id: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("get", "/crm/v3/objects/deals", token, params=params or {"limit": 5})
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def batch_read_deals(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/deals/batch/read", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def batch_create_deals(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/deals/batch/create", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def batch_update_deals(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/deals/batch/update", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def associate_deal(self, user_id: str, path: str) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("put", path, token)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def batch_archive_deals(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/deals/batch/archive", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  # Orders test helpers
+  def create_order(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/orders", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def update_order(self, user_id: str, order_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("patch", f"/crm/v3/objects/orders/{order_id}", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def get_order(self, user_id: str, order_id: str) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("get", f"/crm/v3/objects/orders/{order_id}", token)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def search_orders(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/orders/search", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def list_orders(self, user_id: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("get", "/crm/v3/objects/orders", token, params=params or {"limit": 5})
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def batch_read_orders(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/orders/batch/read", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def batch_create_orders(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/orders/batch/create", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def batch_update_orders(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/orders/batch/update", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def batch_archive_orders(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/orders/batch/archive", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  # Commerce payments test helpers
+  def create_payment(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/commerce_payments", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def update_payment(self, user_id: str, payment_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("patch", f"/crm/v3/objects/commerce_payments/{payment_id}", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def get_payment(self, user_id: str, payment_id: str) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("get", f"/crm/v3/objects/commerce_payments/{payment_id}", token)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def search_payments(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/commerce_payments/search", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def list_payments(self, user_id: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request(
+      "get",
+      "/crm/v3/objects/commerce_payments",
+      token,
+      params=params or {"limit": 5},
+    )
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def delete_payment(self, user_id: str, payment_id: str) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("delete", f"/crm/v3/objects/commerce_payments/{payment_id}", token)
+    return response or {"status": "deleted"}
+
+  def list_object_properties(self, user_id: str, object_type: str) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("get", f"/crm/v3/properties/{object_type}", token)
+    if response is None:
+      raise HTTPException(status_code=502, detail=f"Empty response from HubSpot when loading {object_type} properties")
+    return response
+
+  def create_object_property(self, user_id: str, object_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", f"/crm/v3/properties/{object_type}", token, json=payload)
+    if response is None:
+      raise HTTPException(
+        status_code=502,
+        detail=f"HubSpot returned an empty response when creating {object_type} property.",
+      )
+    return response
+
+  def create_property_group(self, user_id: str, object_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", f"/crm/v3/properties/{object_type}/groups", token, json=payload)
+    if response is None:
+      raise HTTPException(
+        status_code=502,
+        detail=f"HubSpot returned an empty response when creating {object_type} property group.",
+      )
+    return response
+
+  # Tickets test helpers
+  def create_ticket(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/tickets", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def update_ticket(self, user_id: str, ticket_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("patch", f"/crm/v3/objects/tickets/{ticket_id}", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def search_tickets(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/tickets/search", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def list_tickets(self, user_id: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("get", "/crm/v3/objects/tickets", token, params=params or {"limit": 5})
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def batch_read_tickets(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/tickets/batch/read", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def batch_update_tickets(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/tickets/batch/update", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def associate_ticket(self, user_id: str, path: str) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("put", path, token)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
+  def delete_ticket(self, user_id: str, ticket_id: str) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("delete", f"/crm/v3/objects/tickets/{ticket_id}", token)
+    return response or {"status": "deleted"}
+
+  def batch_archive_tickets(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    response = self._request("post", "/crm/v3/objects/tickets/batch/archive", token, json=payload)
+    if response is None:
+      raise HTTPException(status_code=502, detail="Empty response from HubSpot")
+    return response
+
   def _request(
     self,
     method: str,

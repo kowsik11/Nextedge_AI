@@ -13,6 +13,7 @@ class SupabaseTokenStore:
     self.provider = provider
     self.table = table
     self.client = get_supabase_client()
+    self._cache: Dict[str, Dict[str, Any]] = {}
 
   @staticmethod
   def compute_expiry(expires_in: int) -> str:
@@ -37,11 +38,7 @@ class SupabaseTokenStore:
       raise RuntimeError(f"Failed to persist OAuth tokens for {self.provider}: {exc}") from exc
 
   def load(self, user_id: str) -> Optional[Dict[str, Any]]:
-    try:
-      response = self.client.table(self.table).select("*").eq("user_id", user_id).eq("provider", self.provider).maybe_single().execute()
-    except APIError as exc:
-      raise RuntimeError(f"Failed to load OAuth tokens for {self.provider}: {exc}") from exc
-    data = response.data if hasattr(response, "data") else None
+    data = self._load_row(user_id)
     if not data:
       return None
     metadata = data.get("metadata") or {}
@@ -63,6 +60,31 @@ class SupabaseTokenStore:
       self.client.table(self.table).delete().eq("user_id", user_id).eq("provider", self.provider).execute()
     except APIError as exc:
       raise RuntimeError(f"Failed to delete OAuth tokens for {self.provider}: {exc}") from exc
+    self.clear_cache(user_id)
+
+  def _load_row(self, user_id: str) -> Optional[Dict[str, Any]]:
+    try:
+      response = (
+        self.client.table(self.table)
+        .select("*")
+        .eq("user_id", user_id)
+        .eq("provider", self.provider)
+        .maybe_single()
+        .execute()
+      )
+    except APIError as exc:
+      raise RuntimeError(f"Failed to load OAuth tokens for {self.provider}: {exc}") from exc
+    data = response.data if hasattr(response, "data") else None
+    if data:
+      self._cache[user_id] = data
+    return data
+
+  def load_raw(self, user_id: str) -> Optional[Dict[str, Any]]:
+    """Return the raw row for debugging without altering the merged shape."""
+    return self._load_row(user_id)
+
+  def clear_cache(self, user_id: str) -> None:
+    self._cache.pop(user_id, None)
 
 
 gmail_token_store = SupabaseTokenStore("gmail")

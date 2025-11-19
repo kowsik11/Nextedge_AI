@@ -1,0 +1,306 @@
+# HubSpot Tickets API
+
+> A ticket represents a customer request for support. The tickets endpoints allow you to manage this data and sync it between HubSpot and other systems.
+
+## Authentication & Required Headers
+- `Authorization: Bearer YOUR_ACCESS_TOKEN`
+- `Content-Type: application/json`
+- Authenticate with either OAuth 2.0 or a Private App Access Token. See: Authentication Overview.
+
+## Endpoint Reference
+
+### List All Tickets
+- **Method**: `GET`
+- **Endpoint**: `https://api.hubapi.com/crm/v3/objects/tickets`
+- **Description**: Retrieve a list of support tickets.
+- **Required Headers**: `Authorization: Bearer YOUR_ACCESS_TOKEN`
+- **Example Request**:
+```bash
+curl --request GET \
+  --url 'https://api.hubapi.com/crm/v3/objects/tickets?limit=10' \
+  --header 'Authorization: Bearer YOUR_ACCESS_TOKEN'
+```
+  Example request uses `limit=10` to limit the number of results.
+
+### Retrieve a Ticket by ID
+- **Method**: `GET`
+- **Endpoint**: `https://api.hubapi.com/crm/v3/objects/tickets/{ticketId}`
+- **Description**: Get details about a specific ticket.
+- **Required Headers**: `Authorization: Bearer YOUR_ACCESS_TOKEN`
+- **Example Request**:
+```bash
+curl --request GET \
+  --url 'https://api.hubapi.com/crm/v3/objects/tickets/12345' \
+  --header 'Authorization: Bearer YOUR_ACCESS_TOKEN'
+```
+  Replace `12345` with the ticket ID you want to retrieve.
+
+### Search for Tickets
+- **Method**: `POST`
+- **Endpoint**: `https://api.hubapi.com/crm/v3/objects/tickets/search`
+- **Description**: Find tickets by specific properties.
+- **Required Headers**: `Authorization` and `Content-Type: application/json`
+- **Example Payload**:
+```json
+{
+  "filterGroups": [
+    {
+      "filters": [
+        {
+          "propertyName": "subject",
+          "operator": "EQ",
+          "value": "Example Ticket"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Create a Ticket
+- **Method**: `POST`
+- **Endpoint**: `https://api.hubapi.com/crm/v3/objects/tickets`
+- **Description**: Create a ticket in your CRM.
+- **Required Headers**: `Authorization` and `Content-Type: application/json`
+- **Example Payload**:
+```json
+{
+  "properties": {
+    "subject": "Example Ticket",
+    "content": "Details about the issue",
+    "hs_pipeline": "0",
+    "hs_pipeline_stage": "1"
+  }
+}
+```
+  `hs_pipeline` represents the pipeline ID and `hs_pipeline_stage` represents the pipeline stage ID. Adjust both values to match your pipeline setup.
+- **Example Request**:
+```bash
+curl --request POST \
+  --url 'https://api.hubapi.com/crm/v3/objects/tickets' \
+  --header 'Content-Type: application/json' \
+  --header 'Authorization: Bearer YOUR_ACCESS_TOKEN' \
+  --data '{
+    "properties": {
+      "subject": "Example Ticket",
+      "content": "Details about the issue",
+      "hs_pipeline": "0",
+      "hs_pipeline_stage": "1"
+    }
+  }'
+```
+
+### Ticket Creation Details
+To create new tickets, make a `POST` request to `/crm/v3/objects/tickets`. Include your ticket data in a `properties` object, and optionally add an `associations` object to associate the new ticket with existing records (e.g., contacts, companies) or activities (e.g., meetings, notes).
+
+#### Properties
+- Ticket details are stored in ticket properties. There are [default HubSpot ticket properties](https://knowledge.hubspot.com/properties/hubspots-default-ticket-properties), and you can also [create custom properties](https://knowledge.hubspot.com/properties/create-and-edit-properties).
+- When creating a new ticket, include `subject` (the ticket name), `hs_pipeline_stage` (the ticket status), and, if you have multiple pipelines, `hs_pipeline`. If you do not specify a pipeline, the default pipeline is used.
+- Retrieve all available properties by making a `GET` request to `/crm/v3/properties/tickets`. Learn more about the [properties API](/api-reference/crm-properties-v3/guide).
+- You must use the internal ID of a ticket status or pipeline when creating a ticket via the API. The internal ID is a number that is also returned when retrieving tickets via the API. You can find a ticket status or pipeline's internal ID in your [ticket pipeline settings.](https://knowledge.hubspot.com/object-settings/set-up-and-customize-pipelines)
+
+#### Associations
+When creating a new ticket, you can associate it with [existing records](https://knowledge.hubspot.com/records/associate-records) or [activities](https://knowledge.hubspot.com/records/associate-activities-with-records) by including an `associations` object.
+
+**Example (associate with an existing contact and company):**
+```json
+{
+  "properties": {
+    "hs_pipeline": "0",
+    "hs_pipeline_stage": "1",
+    "hs_ticket_priority": "HIGH",
+    "subject": "troubleshoot report"
+  },
+  "associations": [
+    {
+      "to": {
+        "id": 201
+      },
+      "types": [
+        {
+          "associationCategory": "HUBSPOT_DEFINED",
+          "associationTypeId": 16
+        }
+      ]
+    },
+    {
+      "to": {
+        "id": 301
+      },
+      "types": [
+        {
+          "associationCategory": "HUBSPOT_DEFINED",
+          "associationTypeId": 26
+        }
+      ]
+    }
+  ]
+}
+```
+
+| Parameter | Description |
+| --- | --- |
+| `to` | The record or activity to associate with the ticket, specified by its unique `id` value. |
+| `types` | The association type between the ticket and the record/activity. Include `associationCategory` and `associationTypeId`. Default association type IDs are listed [here](/api-reference/crm-associations-v4/guide#association-type-id-values), or you can retrieve custom association types (labels) via the [associations API](/api-reference/crm-associations-v4/guide#retrieve-association-types). |
+
+## Retrieval Parameters & Batch Read
+- Retrieve an individual ticket with `GET /crm/v3/objects/tickets/{ticketId}`.
+- Retrieve a list of all tickets with `GET /crm/v3/objects/tickets`.
+
+For these endpoints, you can include the following query parameters:
+
+| Parameter | Description |
+| --- | --- |
+| `properties` | Comma-separated list of properties to return. If a requested property is not defined, it is omitted. If the property exists but has no value, it is returned as `null`. |
+| `propertiesWithHistory` | Comma-separated list of current and historical properties to return. Undefined properties are omitted; defined properties with no value are returned as `null`. |
+| `associations` | Comma-separated list of objects for which to retrieve associated IDs. Any specified associations that do not exist are omitted from the response. Learn more via the [associations API.](/api-reference/crm-associations-v4/guide) |
+
+To retrieve a batch of specific tickets by record ID or a [custom unique identifier property](/api-reference/crm-properties-v3/guide#create-unique-identifier-properties), make a `POST` request to `/crm/v3/objects/tickets/batch/read`. The batch endpoint cannot retrieve associations. Learn how to batch read associations with the [associations API](/api-reference/crm-associations-v4/guide).
+
+For example, a batch read request could look like:
+```json
+{
+  "properties": [
+    "subject",
+    "hs_pipeline_stage",
+    "hs_pipeline"
+  ],
+  "inputs": [
+    {
+      "id": "4444888856"
+    },
+    {
+      "id": "666699988"
+    }
+  ]
+}
+```
+
+To retrieve tickets by a custom unique identifier property, include the optional `idProperty` parameter:
+```json
+{
+  "properties": [
+    "subject",
+    "hs_pipeline_stage",
+    "hs_pipeline"
+  ],
+  "idProperty": "uniquepropertyexample",
+  "inputs": [
+    {
+      "id": "abc"
+    },
+    {
+      "id": "def"
+    }
+  ]
+}
+```
+
+To retrieve tickets with current and historical values for a property:
+```json
+{
+  "propertiesWithHistory": [
+    "hs_pipeline_stage"
+  ],
+  "inputs": [
+    {
+      "id": "4444888856"
+    },
+    {
+      "id": "666699988"
+    }
+  ]
+}
+```
+
+## Update Tickets
+You can update tickets individually or in batches. For existing tickets, the record ID is the default unique value, but you can also identify and update tickets using [custom unique identifier properties.](/api-reference/crm-properties-v3/guide#create-unique-identifier-properties)
+
+### Update an Individual Ticket
+- **Method**: `PATCH`
+- **Endpoint**: `https://api.hubapi.com/crm/v3/objects/tickets/{ticketId}`
+- Include only the properties that need to be updated.
+- **Example Payload**:
+```json
+{
+  "properties": {
+    "subject": "Updated Subject"
+  }
+}
+```
+- **Example Request**:
+```bash
+curl --request PATCH \
+  --url 'https://api.hubapi.com/crm/v3/objects/tickets/12345' \
+  --header 'Content-Type: application/json' \
+  --header 'Authorization: Bearer YOUR_ACCESS_TOKEN' \
+  --data '{
+    "properties": {
+      "subject": "Updated Subject"
+    }
+  }'
+```
+
+### Batch Update Tickets
+- **Method**: `POST`
+- **Endpoint**: `/crm/v3/objects/tickets/batch/update`
+- Include an array with the identifiers for the tickets and the properties you want to update.
+
+## Associate Existing Tickets with Records or Activities
+- **Method**: `PUT`
+- **Endpoint**: `/crm/v3/objects/tickets/{ticketId}/associations/{toObjectType}/{toObjectId}/{associationTypeId}`
+- Use this endpoint to associate an existing ticket with CRM records or activities.
+- To retrieve the `associationTypeId` value, refer to [this list](/api-reference/crm-associations-v4/guide#association-type-id-values) of default values, or make a `GET` request to `/crm/v4/associations/{fromObjectType}/{toObjectType}/labels`.
+- Learn more about the [associations API.](/api-reference/crm-associations-v4/guide)
+
+### Remove an Association
+- **Method**: `DELETE`
+- **Endpoint**: `/crm/v3/objects/tickets/{ticketId}/associations/{toObjectType}/{toObjectId}/{associationTypeId}`
+- Use this endpoint to remove the association between a ticket and a record or activity.
+
+## Pin an Activity on a Ticket
+Include the `hs_pinned_engagement_id` field in your request and set it to the `id` of the activity to pin. Activity IDs can be retrieved via the [engagements APIs.](/api-reference/overview) You can pin one activity per record, and the activity must already be associated with the ticket before pinning.
+
+**Set or update a ticket's pinned activity:**
+```json
+{
+  "properties": {
+    "hs_pinned_engagement_id": 123456789
+  }
+}
+```
+
+You can also create a ticket, associate it with an existing activity, and pin the activity in the same request:
+```json
+{
+  "properties": {
+    "hs_pipeline": "0",
+    "hs_pipeline_stage": "1",
+    "hs_ticket_priority": "HIGH",
+    "subject": "troubleshoot report",
+    "hs_pinned_engagement_id": 123456789
+  },
+  "associations": [
+    {
+      "to": {
+        "id": 123456789
+      },
+      "types": [
+        {
+          "associationCategory": "HUBSPOT_DEFINED",
+          "associationTypeId": 227
+        }
+      ]
+    }
+  ]
+}
+```
+
+## Delete Tickets
+You can delete tickets individually or in batches, which adds the ticket to the recycling bin in HubSpot. You can later [restore the ticket within HubSpot](https://knowledge.hubspot.com/records/restore-deleted-records).
+
+- **Method**: `DELETE`
+- **Endpoint**: `/crm/v3/objects/tickets/{ticketId}`
+- Use this endpoint to delete an individual ticket by ID.
+
+Learn more about deleting tickets in the [reference documentation](/api-reference/crm-tickets-v3/guide#delete-%2Fcrm%2Fv3%2Fobjects%2Ftickets%2F%7Bticketid%7D).

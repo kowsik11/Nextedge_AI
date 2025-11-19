@@ -1,0 +1,281 @@
+HubSpot Companies API (CRM v3)
+================================
+
+Company records store data about the organizations that interact with your business. The companies endpoints let you create, retrieve, update, associate, and delete those records so that HubSpot stays in sync with your other systems. The information below re-structures the original HubSpot documentation without introducing any new details.
+
+
+Authentication and Headers
+--------------------------
+- All requests use the `Authorization: Bearer YOUR_ACCESS_TOKEN` header.
+- Set `Content-Type: application/json` on calls that include a request body.
+- Authentication can be performed with OAuth 2.0 or Private App access tokens (see the HubSpot Authentication Overview).
+
+
+Endpoint Reference
+------------------
+
+### 1. List All Companies
+- **Method:** `GET`
+- **Endpoint:** `https://api.hubapi.com/crm/v3/objects/companies`
+- **Purpose:** Retrieve a list of companies.
+- **Headers:** `Authorization: Bearer YOUR_ACCESS_TOKEN`
+- **Request body:** none
+- **Example request:**
+
+```bash
+curl --request GET \
+  --url 'https://api.hubapi.com/crm/v3/objects/companies?limit=10' \
+  --header 'Authorization: Bearer YOUR_ACCESS_TOKEN'
+```
+
+
+### 2. Retrieve a Company by ID
+- **Method:** `GET`
+- **Endpoint:** `https://api.hubapi.com/crm/v3/objects/companies/{companyId}`
+- **Purpose:** Retrieve details for a specific company.
+- **Headers:** `Authorization: Bearer YOUR_ACCESS_TOKEN`
+- **Request body:** none
+- **Example request:**
+
+```bash
+curl --request GET \
+  --url 'https://api.hubapi.com/crm/v3/objects/companies/12345' \
+  --header 'Authorization: Bearer YOUR_ACCESS_TOKEN'
+```
+
+
+#### Query Parameters for `GET /crm/v3/objects/companies` and `GET /crm/v3/objects/companies/{companyId}`
+| Parameter | Description |
+|-----------|-------------|
+| `properties` | Comma-separated list of properties returned in the response. Undefined properties are omitted. Defined properties without values are returned as `null`. |
+| `propertiesWithHistory` | Comma-separated list of properties whose current and historical values are returned. Undefined properties are omitted. Defined properties without values are returned as `null`. |
+| `associations` | Comma-separated list of associated object types whose IDs should be returned. Associations that do not exist are not returned. Use the Associations API for more details. |
+
+
+### 3. Batch Read Companies
+- **Method:** `POST`
+- **Endpoint:** `https://api.hubapi.com/crm/v3/objects/companies/batch/read`
+- **Purpose:** Retrieve specific companies by record ID or a custom unique identifier property.
+- **Headers:** `Authorization: Bearer YOUR_ACCESS_TOKEN`, `Content-Type: application/json`
+- **Batch-specific notes:**
+  - Use the `inputs` array to list each record you want to retrieve.
+  - Include `properties` or `propertiesWithHistory` to specify which fields you need.
+  - Use the optional `idProperty` parameter when the IDs refer to a custom unique value rather than the default record ID (`hs_object_id`).
+  - This endpoint **cannot** retrieve associations. Use the Associations API to batch read associations.
+- **Example payload (record IDs):**
+
+```json
+{
+  "properties": [
+    "name",
+    "domain"
+  ],
+  "inputs": [
+    { "id": "56789" },
+    { "id": "23456" }
+  ]
+}
+```
+
+- **Example payload with historical data:**
+
+```json
+{
+  "propertiesWithHistory": [
+    "name"
+  ],
+  "inputs": [
+    { "id": "56789" },
+    { "id": "23456" }
+  ]
+}
+```
+
+
+### 4. Search for Companies
+- **Method:** `POST`
+- **Endpoint:** `https://api.hubapi.com/crm/v3/objects/companies/search`
+- **Purpose:** Find companies based on property values.
+- **Headers:** `Authorization: Bearer YOUR_ACCESS_TOKEN`, `Content-Type: application/json`
+- **Request body structure:** Provide `filterGroups`, each containing `filters` that include `propertyName`, `operator`, and `value`.
+- **Example payload:**
+
+```json
+{
+  "filterGroups": [
+    {
+      "filters": [
+        {
+          "propertyName": "domain",
+          "operator": "EQ",
+          "value": "example.com"
+        }
+      ]
+    }
+  ]
+}
+```
+
+
+### 5. Create a Company
+- **Method:** `POST`
+- **Endpoint:** `https://api.hubapi.com/crm/v3/objects/companies`
+- **Purpose:** Create a new company record.
+- **Headers:** `Authorization: Bearer YOUR_ACCESS_TOKEN`, `Content-Type: application/json`
+- **Request body structure:**
+  - Include company data inside a `properties` object.
+  - Include at least one of `name` or `domain`. Using `domain` is recommended because domain names help avoid duplicates.
+  - To store multiple domains, set `hs_additional_domains` with domains separated by semicolons (e.g., `domain.com; domain2.com; domain3.com`).
+  - Company properties can be default fields or custom properties. Retrieve the full property list by calling `GET /crm/v3/properties/companies`.
+  - When adding `lifecyclestage`, use internal names. Default stages use textual internal names (unchanged even if labels change). Custom stages have numeric internal names. Retrieve the internal IDs via lifecycle stage settings or by fetching the lifecycle stage property through the API.
+- **Example payload:**
+
+```json
+{
+  "properties": {
+    "name": "HubSpot",
+    "domain": "hubspot.com",
+    "city": "Cambridge",
+    "industry": "INFORMATION_TECHNOLOGY_AND_SERVICES",
+    "phone": "555-555-555",
+    "state": "Massachusetts",
+    "lifecyclestage": "51439524"
+  }
+}
+```
+
+
+### 6. Create a Company with Associations
+- **Method:** `POST`
+- **Endpoint:** `https://api.hubapi.com/crm/v3/objects/companies`
+- **Purpose:** Create a company and immediately relate it to existing records or activities.
+- **Headers:** `Authorization: Bearer YOUR_ACCESS_TOKEN`, `Content-Type: application/json`
+- **Association structure:** Add an `associations` array alongside `properties`.
+  - Each association lists a `to` object containing the associated record or activity ID.
+  - Each association includes `types`, which define the relationship by `associationCategory` and `associationTypeId`.
+  - Default association type IDs are documented by HubSpot, and custom association type IDs can be retrieved via the Associations API.
+- **Example payload:**
+
+```json
+{
+  "properties": {
+    "name": "HubSpot",
+    "domain": "hubspot.com",
+    "city": "Cambridge",
+    "industry": "INFORMATION_TECHNOLOGY_AND_SERVICES",
+    "phone": "555-555-555",
+    "state": "Massachusetts",
+    "lifecyclestage": "51439524"
+  },
+  "associations": [
+    {
+      "to": { "id": 101 },
+      "types": [
+        {
+          "associationCategory": "HUBSPOT_DEFINED",
+          "associationTypeId": 280
+        }
+      ]
+    },
+    {
+      "to": { "id": 556677 },
+      "types": [
+        {
+          "associationCategory": "HUBSPOT_DEFINED",
+          "associationTypeId": 185
+        }
+      ]
+    }
+  ]
+}
+```
+
+- **Association fields:**
+
+| Field | Description |
+|-------|-------------|
+| `to` | Specifies the record or activity to associate, identified by its unique `id`. |
+| `types` | Lists association definitions. Include both `associationCategory` and `associationTypeId`. |
+
+
+### 7. Update a Company
+- **Method:** `PATCH`
+- **Endpoint:** `https://api.hubapi.com/crm/v3/objects/companies/{companyId}`
+- **Purpose:** Update properties on a company record.
+- **Headers:** `Authorization: Bearer YOUR_ACCESS_TOKEN`, `Content-Type: application/json`
+- **Request body:** Include updated values inside a `properties` object. Companies can be updated individually or in batches; a company's record ID uniquely identifies it for API updates.
+- **Lifecycle stage note:** When updating `lifecyclestage`, values can only move forward in the stage order. To set a lifecycle stage backward, clear the current value first. Clearing can be done manually, through a workflow, or via an integration that syncs contact data.
+- **Example request:**
+
+```bash
+curl --request PATCH \
+  --url 'https://api.hubapi.com/crm/v3/objects/companies/12345' \
+  --header 'Content-Type: application/json' \
+  --header 'Authorization: Bearer YOUR_ACCESS_TOKEN' \
+  --data '{
+    "properties": {
+      "name": "Updated Name"
+    }
+  }'
+```
+
+
+### 8. Associate Existing Companies with Records or Activities
+- **Method:** `PUT`
+- **Endpoint:** `https://api.hubapi.com/crm/v3/objects/companies/{companyId}/associations/{toObjectType}/{toObjectId}/{associationTypeId}`
+- **Purpose:** Associate an existing company with another CRM record or activity.
+- **Headers:** `Authorization: Bearer YOUR_ACCESS_TOKEN`
+- **Notes:**
+  - Use `associationTypeId` values from HubSpot's default list or retrieve them by calling `GET /crm/v4/associations/{fromObjectType}/{toObjectType}/labels`.
+  - Additional details about association categories and labels are available in the Associations API documentation.
+
+
+### 9. Pin an Activity on a Company Record
+- **Purpose:** Pin a single activity (e.g., an engagement) to a company record so it appears in the record's pinned section.
+- **Implementation:** Include the `hs_pinned_engagement_id` property in your company create or update request. Only one activity can be pinned per record, and the activity must already be associated with the company.
+- **Example update payload:**
+
+```json
+{
+  "properties": {
+    "hs_pinned_engagement_id": 123456789
+  }
+}
+```
+
+- **Example create payload with pinning and association:**
+
+```json
+{
+  "properties": {
+    "domain": "example.com",
+    "name": "Example Company",
+    "hs_pinned_engagement_id": 123456789
+  },
+  "associations": [
+    {
+      "to": { "id": 123456789 },
+      "types": [
+        {
+          "associationCategory": "HUBSPOT_DEFINED",
+          "associationTypeId": 189
+        }
+      ]
+    }
+  ]
+}
+```
+
+
+### 10. Delete Companies
+- **Method:** `DELETE`
+- **Endpoint:** `https://api.hubapi.com/crm/v3/objects/companies/{companyId}`
+- **Purpose:** Delete an individual company by ID. Deletion moves the company into HubSpot's recycling bin, where it can be restored later.
+- **Headers:** `Authorization: Bearer YOUR_ACCESS_TOKEN`
+- **Batch deletion:** Companies can also be deleted in batches (details are available in the HubSpot reference documentation).
+
+
+Supplementary Notes
+-------------------
+- The documentation above preserves the original HubSpot details without assuming or adding new information.
+- Use the Associations API whenever you need to inspect association schemas, labels, or to batch read association data.
