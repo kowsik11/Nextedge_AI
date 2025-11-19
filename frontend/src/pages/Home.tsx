@@ -838,6 +838,7 @@ const Home = () => {
             Sign Out
           </Button>
           <Button
+<<<<<<< HEAD
             variant="hero"
             size="lg"
             className="mb-3 shadow-xl"
@@ -846,6 +847,8 @@ const Home = () => {
             Disconnect HubSpot
           </Button>
           <Button
+=======
+>>>>>>> origin/main
             variant="hero"
             size="lg"
             className="shadow-xl"

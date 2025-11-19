@@ -45,11 +45,6 @@ To get NextEdge up and running, follow these simple steps:
     .\.venv\Scripts\activate
     pip install -r requirements.txt
     python -m uvicorn app.main:app --reload --port 8000
->>>>>>> 7378c2212b0aaa177c0282ff87c0d5d41f82ce17
-    ```
-=======
-    python -m uvicorn app.main:app --reload --port 8000
->>>>>>> 7378c2212b0aaa177c0282ff87c0d5d41f82ce17
     ```
 3.  **Frontend Setup**:
     ```bash
