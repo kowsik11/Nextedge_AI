@@ -10,7 +10,6 @@ NextEdge is designed to revolutionize how you connect your essential business to
 - **Live Inbox Preview**: Right-hand slide-over plus inbox explorer for new/processed/error tracking with quick links to Gmail and HubSpot records.
 - **HubSpot Integration**: Effortlessly sync your CRM data and automate sales processes.
 - **Gmail Integration**: Manage your email communications directly within NextEdge.
-- **Zoho Integration**: Connect with Zoho services for comprehensive business management.
 - **Intelligent Pipeline Management**: Optimize your sales pipeline with AI-driven insights.
 - **Robust API**: Extend functionality and integrate with other tools using our powerful API.
 - **Secure & Scalable**: Built with security and performance in mind, ready to grow with your business.
@@ -26,7 +25,7 @@ NextEdge is designed to revolutionize how you connect your essential business to
 
 - **Backend**: Python, FastAPI
 - **Frontend**: React, TypeScript, Tailwind CSS
-- **Database**: (To be specified, if applicable)
+- **Database**: Supabase
 - **Authentication**: OAuth2
 
 ## 🚀 Getting Started
