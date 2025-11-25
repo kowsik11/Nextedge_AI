@@ -20,11 +20,26 @@ import { cn } from "@/lib/utils";
 import { useSupabaseAuth } from "@/providers/AuthProvider";
 
 type ConnectionState = "connecting" | "disconnected" | "connected";
-type InboxFilter = "new" | "processed" | "error";
+type InboxFilter =
+  | "new"
+  | "processed"
+  | "error"
+  | "pending_ai_analysis"
+  | "ai_analyzed"
+  | "routed"
+  | "accepted"
+  | "rejected"
+  | "needs_review";
 
 type HubSpotStatus = {
   connected: boolean;
   email?: string;
+};
+
+type SalesforceStatus = {
+  connected: boolean;
+  email?: string;
+  instance_url?: string;
 };
 
 type GmailStatus = {
@@ -44,6 +59,8 @@ type InboxSummary = {
 
 type InboxMessage = {
   id: string;
+  message_id?: string; // Gmail message id (external)
+  thread_id?: string | null;
   subject: string;
   sender: string | null;
   preview: string;
@@ -57,6 +74,12 @@ type InboxMessage = {
   updated_at?: string;
   gmail_url?: string;
   crm_record_url?: string | null;
+  ai_routing_decision?: any;
+  ai_confidence?: number | null;
+  hubspot_object_type?: string | null;
+  salesforce_object_type?: string | null;
+  salesforce_contact_id?: string | null;
+  ai_summary?: string | null;
   error?: string | null;
 };
 
@@ -82,7 +105,17 @@ const Home = () => {
 
   const [gmailStatus, setGmailStatus] = useState<GmailStatus>({
     connected: false,
-    counts: { new: 0, processed: 0, error: 0 },
+    counts: {
+      new: 0,
+      processed: 0,
+      error: 0,
+      pending_ai_analysis: 0,
+      ai_analyzed: 0,
+      routed: 0,
+      accepted: 0,
+      rejected: 0,
+      needs_review: 0,
+    },
     baseline_ready: false,
   });
   const [gmailState, setGmailState] = useState<ConnectionState>("connecting");
@@ -94,6 +127,12 @@ const Home = () => {
   );
   const [hubspotError, setHubspotError] = useState<string | null>(null);
   const [hubspotDisconnecting, setHubspotDisconnecting] = useState(false);
+  const [salesforceState, setSalesforceState] =
+    useState<ConnectionState>("connecting");
+  const [salesforceStatus, setSalesforceStatus] =
+    useState<SalesforceStatus | null>(null);
+  const [salesforceError, setSalesforceError] = useState<string | null>(null);
+  const [salesforceDisconnecting, setSalesforceDisconnecting] = useState(false);
 
   const [showInsights, setShowInsights] = useState(false);
   const [showInbox, setShowInbox] = useState(false);
@@ -113,10 +152,14 @@ const Home = () => {
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [noteOverride, setNoteOverride] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
+  const [accepting, setAccepting] = useState(false);
+  const [routingSalesforce, setRoutingSalesforce] = useState(false);
   const [autoSynced, setAutoSynced] = useState(false);
 
   const bannerParam = searchParams.get("connected");
-  const showBanner = bannerParam === "google" || bannerParam === "hubspot";
+  const showBanner = bannerParam === "google" || bannerParam === "hubspot" || bannerParam === "salesforce";
   const buildHeaders = useCallback(
     (extra: HeadersInit = {}) => ({
       ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
@@ -139,7 +182,17 @@ const Home = () => {
       console.error(error);
       setGmailStatus({
         connected: false,
-        counts: { new: 0, processed: 0, error: 0 },
+        counts: {
+          new: 0,
+          processed: 0,
+          error: 0,
+          pending_ai_analysis: 0,
+          ai_analyzed: 0,
+          routed: 0,
+          accepted: 0,
+          rejected: 0,
+          needs_review: 0,
+        },
         baseline_ready: false,
       });
       setGmailState("disconnected");
@@ -161,6 +214,24 @@ const Home = () => {
       console.error(error);
       setHubspotError("Unable to load HubSpot status.");
       setHubspotState("disconnected");
+    }
+  }, [buildHeaders, userId]);
+
+  const fetchSalesforceStatus = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const res = await fetch(`/api/salesforce/status?user_id=${encodeURIComponent(userId)}`, {
+        headers: buildHeaders(),
+      });
+      if (!res.ok) throw new Error(`Status request failed: ${res.status}`);
+      const payload = (await res.json()) as SalesforceStatus;
+      setSalesforceStatus(payload);
+      setSalesforceState(payload.connected ? "connected" : "disconnected");
+      setSalesforceError(null);
+    } catch (error) {
+      console.error(error);
+      setSalesforceError("Unable to load Salesforce status.");
+      setSalesforceState("disconnected");
     }
   }, [buildHeaders, userId]);
 
@@ -199,8 +270,9 @@ const Home = () => {
     if (userId) {
       fetchGmailStatus();
       fetchHubSpotStatus();
+      fetchSalesforceStatus();
     }
-  }, [fetchGmailStatus, fetchHubSpotStatus, userId]);
+  }, [fetchGmailStatus, fetchHubSpotStatus, fetchSalesforceStatus, userId]);
 
   useEffect(() => {
     setAutoSynced(false);
@@ -209,14 +281,14 @@ const Home = () => {
   useEffect(() => {
     if (
       gmailState === "connected" &&
-      hubspotState === "connected" &&
+      (hubspotState === "connected" || salesforceState === "connected") &&
       userId &&
       !autoSynced
     ) {
       setAutoSynced(true);
       triggerSync();
     }
-  }, [autoSynced, gmailState, hubspotState, triggerSync, userId]);
+  }, [autoSynced, gmailState, hubspotState, salesforceState, triggerSync, userId]);
 
   useEffect(() => {
     if (!showInsights || !userId) return;
@@ -255,6 +327,8 @@ const Home = () => {
 
   useEffect(() => {
     if (!showInbox || !userId) return;
+    // When opening the inbox preview, hide the live feed drawer.
+    setShowInsights(false);
     let active = true;
     setMessagesLoading(true);
     setMessagesError(null);
@@ -278,9 +352,9 @@ const Home = () => {
             const stillExists = payload.find((item) => item.id === previous.id);
             if (stillExists) return stillExists;
           }
-          return payload[0];
-        });
-      })
+                  return payload[0];
+                });
+              })
       .catch((error) => {
         console.error(error);
         if (active) {
@@ -296,6 +370,190 @@ const Home = () => {
       active = false;
     };
   }, [buildHeaders, showInbox, filter, debouncedSearch, userId]);
+
+  const analyzeSelected = async () => {
+    if (!selectedMessage || !userId) return;
+    setAnalyzing(true);
+    try {
+      const res = await fetch("/api/pipeline/analyze", {
+        method: "POST",
+        headers: buildHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          user_id: userId,
+          message_id: selectedMessage.message_id || selectedMessage.id,
+          note_override: noteOverride || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(detail || "Analyze failed");
+      }
+      const payload = await res.json();
+      // optimistic update of selected message and list
+      setSelectedMessage((prev) =>
+        prev && prev.id === selectedMessage.id
+          ? {
+              ...prev,
+              ai_routing_decision: payload.routing,
+              ai_confidence: payload.routing?.confidence ?? prev.ai_confidence,
+              ai_summary: payload.ai_summary ?? prev.ai_summary,
+              status: "pending_ai_analysis",
+            }
+          : prev
+      );
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === selectedMessage.id
+            ? {
+                ...m,
+                ai_routing_decision: payload.routing,
+                ai_confidence: payload.routing?.confidence ?? m.ai_confidence,
+                ai_summary: payload.ai_summary ?? m.ai_summary,
+                status: "pending_ai_analysis",
+              }
+            : m
+        )
+      );
+      await fetchGmailStatus();
+    } catch (error) {
+      console.error(error);
+      setMessagesError("AI analyze failed.");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const acceptSelected = async () => {
+    if (!selectedMessage || !userId) return;
+    setAccepting(true);
+    try {
+      const res = await fetch("/api/pipeline/accept", {
+        method: "POST",
+        headers: buildHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          user_id: userId,
+          message_id: selectedMessage.message_id || selectedMessage.id,
+          note_override: noteOverride || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(detail || "Accept failed");
+      }
+      const payload = await res.json();
+      setSelectedMessage((prev) =>
+        prev && prev.id === selectedMessage.id
+          ? {
+              ...prev,
+              ai_routing_decision: payload.routing,
+              ai_confidence: payload.routing?.confidence ?? prev.ai_confidence,
+              ai_summary: payload.ai_summary ?? prev.ai_summary,
+              status: "ai_analyzed",
+            }
+          : prev
+      );
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === selectedMessage.id
+            ? {
+                ...m,
+                ai_routing_decision: payload.routing,
+                ai_confidence: payload.routing?.confidence ?? m.ai_confidence,
+                ai_summary: payload.ai_summary ?? m.ai_summary,
+                status: "ai_analyzed",
+              }
+            : m
+        )
+      );
+      await fetchGmailStatus();
+    } catch (error) {
+      console.error(error);
+      setMessagesError("Accept failed.");
+    } finally {
+      setAccepting(false);
+    }
+  };
+
+  const routeToSalesforce = async () => {
+    if (!selectedMessage || !userId) return;
+    setRoutingSalesforce(true);
+    try {
+      const res = await fetch("/api/salesforce/route-email", {
+        method: "POST",
+        headers: buildHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          user_id: userId,
+          message_id: selectedMessage.message_id || selectedMessage.id,
+        }),
+      });
+      if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(detail || "Salesforce route failed");
+      }
+      const payload = await res.json();
+      setSelectedMessage((prev) =>
+        prev && prev.id === selectedMessage.id
+          ? {
+              ...prev,
+              salesforce_object_type: "contacts",
+              salesforce_contact_id: payload.contact_id || prev.salesforce_contact_id,
+              crm_record_url: payload.crm_record_url || prev.crm_record_url,
+              status: "routed",
+            }
+          : prev
+      );
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === selectedMessage.id
+            ? {
+                ...m,
+                salesforce_object_type: "contacts",
+                salesforce_contact_id: payload.contact_id || m.salesforce_contact_id,
+                crm_record_url: payload.crm_record_url || m.crm_record_url,
+                status: "routed",
+              }
+            : m
+        )
+      );
+    } catch (error) {
+      console.error(error);
+      setMessagesError("Salesforce route failed.");
+    } finally {
+      setRoutingSalesforce(false);
+    }
+  };
+
+  const rejectSelected = async () => {
+    if (!selectedMessage || !userId) return;
+    setAnalyzing(true);
+    try {
+      const res = await fetch("/api/pipeline/reject", {
+        method: "POST",
+        headers: buildHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ user_id: userId, message_id: selectedMessage.message_id || selectedMessage.id }),
+      });
+      if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(detail || "Reject failed");
+      }
+      await fetchGmailStatus();
+      const params = new URLSearchParams({
+        user_id: userId,
+        status: filter,
+        limit: "50",
+      });
+      if (debouncedSearch) params.set("query", debouncedSearch);
+      const refreshed = await fetch(`/api/inbox/messages?${params.toString()}`, { headers: buildHeaders() }).then((r) => r.json());
+      setMessages(refreshed.messages);
+      const updated = refreshed.messages.find((m: InboxMessage) => m.id === selectedMessage.id);
+      setSelectedMessage(updated || null);
+    } catch (error) {
+      console.error(error);
+      setMessagesError("Reject failed.");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
 
   const summaryStats = useMemo(
     () => [
@@ -324,7 +582,8 @@ const Home = () => {
     "there";
   const baselineReady = gmailStatus.baseline_ready ?? true;
   const canProceed =
-    gmailState === "connected" && hubspotState === "connected";
+    gmailState === "connected" &&
+    (hubspotState === "connected" || salesforceState === "connected");
 
   const handleConnectGmail = () => {
     if (!userId) return;
@@ -380,6 +639,33 @@ const Home = () => {
     }
   };
 
+  const handleConnectSalesforce = () => {
+    if (!userId) return;
+    setSalesforceState("connecting");
+    window.location.href = `/api/salesforce/connect?user_id=${encodeURIComponent(
+      userId
+    )}`;
+  };
+
+  const handleDisconnectSalesforce = async () => {
+    if (!userId) return;
+    setSalesforceDisconnecting(true);
+    try {
+      const res = await fetch("/api/salesforce/disconnect", {
+        method: "POST",
+        headers: buildHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ user_id: userId }),
+      });
+      if (!res.ok) throw new Error("Disconnect failed");
+      await fetchSalesforceStatus();
+      setSalesforceState("disconnected");
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setSalesforceDisconnecting(false);
+    }
+  };
+
   const handleDisconnectHubSpotButton = async () => {
     if (!userId) return;
     try {
@@ -391,12 +677,7 @@ const Home = () => {
       if (res.ok) {
         setHubspotStatus(null);
         setHubspotState("disconnected");
-        localStorage.removeItem("hubspot_token_preview");
-        localStorage.removeItem("hubspot_connection");
-        sessionStorage.removeItem("hubspot_token_preview");
-        document.cookie = "hubspot_token_preview=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
-        document.cookie = "hubspot_connection=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
-        console.log("HubSpot disconnected (frontend cleared)");
+        console.log("HubSpot disconnected");
         navigate("/");
       }
     } catch (error) {
@@ -424,18 +705,35 @@ const Home = () => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ user_id: uid }),
         }).catch(() => {});
+        await fetch("/api/salesforce/disconnect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: uid }),
+        }).catch(() => {});
       }
     } finally {
       await signOut();
       // Reset local UI state
       setGmailState("disconnected");
       setHubspotState("disconnected");
+      setSalesforceState("disconnected");
       setGmailStatus({
         connected: false,
-        counts: { new: 0, processed: 0, error: 0 },
+        counts: {
+          new: 0,
+          processed: 0,
+          error: 0,
+          pending_ai_analysis: 0,
+          ai_analyzed: 0,
+          routed: 0,
+          accepted: 0,
+          rejected: 0,
+          needs_review: 0,
+        },
         baseline_ready: false,
       });
       setHubspotStatus(null);
+      setSalesforceStatus(null);
       setShowInbox(false);
       setShowInsights(false);
       navigate("/");
@@ -463,6 +761,10 @@ const Home = () => {
     connected: false,
     email: "",
   };
+  const salesforceCardStatus = salesforceStatus ?? {
+    connected: false,
+    instance_url: "",
+  };
 
   return (
     <div className="min-h-screen bg-background px-6 py-12">
@@ -472,7 +774,7 @@ const Home = () => {
             Hi {greeting}
           </h1>
           <p className="text-muted-foreground">
-            Let's secure your automations in two quick steps.
+            Let&apos;s secure your automations in two quick steps.
           </p>
         </div>
 
@@ -483,7 +785,7 @@ const Home = () => {
           </div>
         )}
 
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="grid gap-6 md:grid-cols-3">
           <ConnectionCard
             title="Connect Gmail"
             description={
@@ -521,6 +823,22 @@ const Home = () => {
             onDisconnect={hubspotCardStatus.connected ? handleDisconnectHubSpot : undefined}
             disconnecting={hubspotDisconnecting}
           />
+          <ConnectionCard
+            title="Connect Salesforce"
+            description={
+              salesforceCardStatus.connected
+                ? `Instance ${salesforceCardStatus.instance_url || ""}`
+                : "Authorize Salesforce to route AI-enriched records."
+            }
+            state={salesforceState}
+            onConnect={handleConnectSalesforce}
+            detail={salesforceCardStatus.connected ? "Ready" : undefined}
+            error={salesforceError || undefined}
+            onDisconnect={
+              salesforceCardStatus.connected ? handleDisconnectSalesforce : undefined
+            }
+            disconnecting={salesforceDisconnecting}
+          />
         </div>
 
         <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-border bg-muted/20 p-6 sm:flex-row sm:items-center sm:justify-between">
@@ -529,7 +847,7 @@ const Home = () => {
               All set? Jump into your live inbox.
             </p>
             <p className="text-sm text-muted-foreground">
-              We'll keep polling Gmail once both integrations are active.
+              We&apos;ll keep polling Gmail once both integrations are active.
               You can re-run sync anytime.
             </p>
             {gmailStatus.connected && !baselineReady && (
@@ -548,7 +866,7 @@ const Home = () => {
               {isSyncing ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Syncing…
+                  Syncing...
                 </>
               ) : (
                 <>
@@ -628,8 +946,8 @@ const Home = () => {
                   {summary?.counts.new ?? 0} new emails
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {(summary?.counts.processed ?? 0).toLocaleString()} processed
-                  · {(summary?.counts.error ?? 0).toLocaleString()} with errors
+                  {(summary?.counts.processed ?? 0).toLocaleString()} processed &middot;{" "}
+                  {(summary?.counts.error ?? 0).toLocaleString()} with errors
                 </p>
               </div>
               <Button
@@ -656,7 +974,7 @@ const Home = () => {
                   Latest Gmail activity
                 </h2>
                 <p className="text-sm text-muted-foreground">
-                  Filter, search, and open any record in Gmail or HubSpot.
+                  Filter, search, and open any record in Gmail or your CRM.
                 </p>
               </div>
               <Button
@@ -670,18 +988,28 @@ const Home = () => {
 
             <div className="mt-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex gap-2">
-                {(["new", "processed", "error"] as InboxFilter[]).map(
-                  (item) => (
-                    <Button
-                      key={item}
-                      variant={filter === item ? "hero" : "outline"}
-                      size="sm"
-                      onClick={() => setFilter(item)}
-                    >
-                      {item.charAt(0).toUpperCase() + item.slice(1)}
-                    </Button>
-                  )
-                )}
+                {(
+                  [
+                    "new",
+                    "pending_ai_analysis",
+                    "ai_analyzed",
+                    "needs_review",
+                    "routed",
+                    "accepted",
+                    "rejected",
+                    "processed",
+                    "error",
+                  ] as InboxFilter[]
+                ).map((item) => (
+                  <Button
+                    key={item}
+                    variant={filter === item ? "hero" : "outline"}
+                    size="sm"
+                    onClick={() => setFilter(item)}
+                  >
+                    {item.replace(/_/g, " ")}
+                  </Button>
+                ))}
               </div>
               <div className="flex w-full gap-2 lg:max-w-xs">
                 <Input
@@ -778,15 +1106,154 @@ const Home = () => {
                       </p>
                     </div>
                     <div className="mt-4 flex-1 overflow-y-auto rounded-lg bg-background/60 p-4">
-                      <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
-                        {selectedMessage.preview ||
-                          selectedMessage.snippet ||
-                          "No preview available yet."}
-                      </p>
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-xs font-semibold uppercase text-muted-foreground">
+                            Email preview
+                          </p>
+                          <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                            {selectedMessage.preview ||
+                              selectedMessage.snippet ||
+                              "No preview available yet."}
+                          </p>
+                        </div>
+                        {selectedMessage.ai_summary && (
+                          <div className="rounded-lg border border-border bg-background/70 p-3">
+                            <p className="text-xs font-semibold uppercase text-muted-foreground">
+                              AI summary
+                            </p>
+                            <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                              {selectedMessage.ai_summary}
+                            </p>
+                          </div>
+                        )}
+                      </div>
                       {selectedMessage.error && (
                         <p className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
                           {selectedMessage.error}
                         </p>
+                      )}
+                      {filter === "pending_ai_analysis" && (
+                        <div className="mt-4 rounded-lg border border-border bg-card/70 p-3 space-y-2">
+                          <p className="text-xs font-semibold uppercase text-muted-foreground">
+                            AI Analysis
+                          </p>
+                          {selectedMessage.ai_routing_decision ? (
+                            <>
+                              <p className="text-sm text-foreground">
+                                Object:{" "}
+                                <strong>
+                                  {selectedMessage.hubspot_object_type ||
+                                    selectedMessage.ai_routing_decision
+                                      ?.primary_object ||
+                                    "N/A"}
+                                </strong>
+                              </p>
+                              <p className="text-sm text-muted-foreground">
+                                Confidence:{" "}
+                                {Math.round(
+                                  (selectedMessage.ai_confidence || 0) * 100
+                                )}
+                                %
+                              </p>
+                              <p className="text-sm text-muted-foreground">
+                                Intent:{" "}
+                                {selectedMessage.ai_routing_decision.intent ||
+                                  "N/A"}
+                              </p>
+                              <p className="text-sm text-muted-foreground">
+                                Reasoning:{" "}
+                                {selectedMessage.ai_routing_decision.reasoning ||
+                                  "N/A"}
+                              </p>
+                              {(selectedMessage.salesforce_object_type ||
+                                selectedMessage.hubspot_object_type) && (
+                                <p className="text-sm text-muted-foreground">
+                                  CRM targets:{" "}
+                                  {[
+                                    selectedMessage.hubspot_object_type
+                                      ? `HubSpot (${selectedMessage.hubspot_object_type})`
+                                      : null,
+                                    selectedMessage.salesforce_object_type
+                                      ? `Salesforce (${selectedMessage.salesforce_object_type})`
+                                      : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" • ")}
+                                </p>
+                              )}
+                            </>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">
+                              Not analyzed yet. Run AI to classify and summarize.
+                            </p>
+                          )}
+                          <label className="text-xs text-muted-foreground">
+                            Note (editable before accepting)
+                          </label>
+                          <textarea
+                            className="w-full rounded-md border border-border bg-background p-2 text-sm text-foreground"
+                            rows={4}
+                            value={noteOverride}
+                            onChange={(e) => setNoteOverride(e.target.value)}
+                            placeholder="Edit the note text before sending to CRM..."
+                          />
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              variant="hero-outline"
+                              size="sm"
+                              disabled={analyzing || accepting}
+                              onClick={() => analyzeSelected()}
+                            >
+                              {analyzing ? (
+                                <>
+                                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                                  Analyzing...
+                                </>
+                              ) : (
+                                "Analyze with AI"
+                              )}
+                            </Button>
+                            <Button
+                              variant="hero"
+                              size="sm"
+                              disabled={accepting || analyzing}
+                              onClick={() => acceptSelected()}
+                            >
+                              {accepting ? (
+                                <>
+                                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                                  Sending...
+                                </>
+                              ) : (
+                                "Accept & send to HubSpot"
+                              )}
+                            </Button>
+                            <Button
+                              variant="hero-outline"
+                              size="sm"
+                              disabled={routingSalesforce || analyzing || salesforceState !== "connected"}
+                              onClick={() => routeToSalesforce()}
+                            >
+                              {routingSalesforce ? (
+                                <>
+                                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                                  Routing...
+                                </>
+                              ) : (
+                                "Send to Salesforce"
+                              )}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={analyzing}
+                              onClick={rejectSelected}
+                            >
+                              Reject
+                            </Button>
+                          </div>
+                        </div>
                       )}
                     </div>
                     <div className="mt-4 flex flex-wrap gap-3">
@@ -838,7 +1305,6 @@ const Home = () => {
             Sign Out
           </Button>
           <Button
-<<<<<<< HEAD
             variant="hero"
             size="lg"
             className="mb-3 shadow-xl"
@@ -847,8 +1313,6 @@ const Home = () => {
             Disconnect HubSpot
           </Button>
           <Button
-=======
->>>>>>> origin/main
             variant="hero"
             size="lg"
             className="shadow-xl"

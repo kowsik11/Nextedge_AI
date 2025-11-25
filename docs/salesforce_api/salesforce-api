@@ -1,0 +1,123 @@
+# Salesforce REST API Reference (NextEdge)
+
+Use this as the structured blueprint to wire Salesforce alongside HubSpot. Keep `SALESFORCE_API_VERSION` and the `instance_url` returned from OAuth in sync with your env.
+
+## Base Setup
+- Base: `https://{instance_url}/services/data/{SALESFORCE_API_VERSION}`
+- Headers: `Authorization: Bearer <access_token>`, `Content-Type: application/json`, `Accept: application/json`
+- Describe fields: `GET /sobjects/{Object}/describe`
+- SOQL query: `GET /query?q=SELECT+Id,+Field1+FROM+{Object}+WHERE+...`
+- Upsert by external ID: `PATCH /sobjects/{Object}/{ExternalField__c}/{Value}`
+- Refresh token on 401/403; rotate keys and log `errors` and `httpStatusCode` from responses.
+
+## Common Patterns
+- Create: `POST /sobjects/{Object}` with JSON body.
+- Read: `GET /sobjects/{Object}/{Id}`
+- Update: `PATCH /sobjects/{Object}/{Id}` (body only contains changed fields)
+- Delete: `DELETE /sobjects/{Object}/{Id}`
+- Lookup to avoid dupes: SOQL `SELECT Id FROM {Object} WHERE <field>=... LIMIT 1`
+
+## Object Blueprints
+
+### Contact (Individual)
+- Create: `POST /sobjects/Contact`
+  ```json
+  { "LastName": "Doe", "FirstName": "John", "Email": "john@example.com" }
+  ```
+- Get: `GET /sobjects/Contact/{Id}`
+- Update: `PATCH /sobjects/Contact/{Id}` with changed fields
+- Delete: `DELETE /sobjects/Contact/{Id}`
+- Upsert (external ID): `PATCH /sobjects/Contact/External_Id__c/ABC-123`
+- Query by email: `SELECT Id, FirstName, LastName, Email FROM Contact WHERE Email='john@example.com' LIMIT 1`
+
+### Account (Company)
+- Create: `POST /sobjects/Account`
+  ```json
+  { "Name": "Acme Corp", "Website": "https://acme.com", "Phone": "+1 555 111 2222" }
+  ```
+- Get: `GET /sobjects/Account/{Id}`
+- Update: `PATCH /sobjects/Account/{Id}`
+- Delete: `DELETE /sobjects/Account/{Id}`
+- Upsert (external ID): `PATCH /sobjects/Account/ExternalAcctId__c/ID12345`
+- Query by name: `SELECT Id, Name FROM Account WHERE Name='Acme Corp' LIMIT 1`
+
+### Lead (Prospect)
+- Create: `POST /sobjects/Lead`
+  ```json
+  { "LastName": "Smith", "Company": "Prospect Inc", "Email": "lead@prospect.com", "Status": "Open - Not Contacted" }
+  ```
+- Get: `GET /sobjects/Lead/{Id}`
+- Update: `PATCH /sobjects/Lead/{Id}`
+- Delete: `DELETE /sobjects/Lead/{Id}`
+- Convert: `POST /sobjects/Lead/{Id}/convert` with `{ "leadId": "...", "convertedStatus": "Qualified" }` (+optional `accountId`, `contactId`, `opportunityName`)
+- Upsert (external ID): `PATCH /sobjects/Lead/External_Id__c/LEAD-001`
+- Query by email+company: `SELECT Id FROM Lead WHERE Email='lead@prospect.com' AND Company='Prospect Inc' LIMIT 1`
+
+### Opportunity (Deal)
+- Create: `POST /sobjects/Opportunity`
+  ```json
+  { "Name": "New Deal", "StageName": "Prospecting", "CloseDate": "2025-12-31", "Amount": 5000 }
+  ```
+- Get: `GET /sobjects/Opportunity/{Id}`
+- Update: `PATCH /sobjects/Opportunity/{Id}`
+- Delete: `DELETE /sobjects/Opportunity/{Id}`
+- Upsert (external ID): `PATCH /sobjects/Opportunity/External_Deal_Id__c/DEAL-001`
+- Query by name: `SELECT Id, Name FROM Opportunity WHERE Name='New Deal' LIMIT 1`
+
+### Case (Ticket)
+- Create: `POST /sobjects/Case`
+  ```json
+  { "Subject": "Issue", "Description": "Details", "Origin": "Email", "Status": "New" }
+  ```
+- Get: `GET /sobjects/Case/{Id}`
+- Update: `PATCH /sobjects/Case/{Id}`
+- Delete: `DELETE /sobjects/Case/{Id}`
+
+### Campaign (Marketing)
+- Create: `POST /sobjects/Campaign`
+  ```json
+  { "Name": "Launch Campaign", "Status": "In Progress", "StartDate": "2025-11-01" }
+  ```
+- Get: `GET /sobjects/Campaign/{Id}`
+- Update: `PATCH /sobjects/Campaign/{Id}`
+- Delete: `DELETE /sobjects/Campaign/{Id}`
+- Upsert: `PATCH /sobjects/Campaign/Ext_Campaign_ID__c/NE-AUTUMN-2025`
+
+### Order (Purchase Order)
+- Create: `POST /sobjects/Order`
+  ```json
+  { "AccountId": "001...", "EffectiveDate": "2025-11-22", "Status": "Draft" }
+  ```
+- Get: `GET /sobjects/Order/{Id}`
+- Update: `PATCH /sobjects/Order/{Id}`
+- Delete: `DELETE /sobjects/Order/{Id}`
+- Upsert: `PATCH /sobjects/Order/External_Order_Id__c/ORDER-001`
+
+### Task (Activity / Note analog)
+- Create: `POST /sobjects/Task`
+  ```json
+  { "Subject": "Follow up", "WhoId": "<ContactId>", "WhatId": "<AccountOrOpportunityId>", "Status": "Not Started", "Priority": "Normal" }
+  ```
+- Get/Update/Delete: same pattern with `/Task/{Id}`
+
+## Composite & Batch
+- Composite upsert Account + create Contact in one call: `POST /composite`
+  ```json
+  {
+    "allOrNone": true,
+    "compositeRequest": [
+      { "method": "PATCH", "url": "/sobjects/Account/ExternalAcctId__c/ID12345", "referenceId": "acct", "body": { "Name": "Acme" } },
+      { "method": "POST", "url": "/sobjects/Contact", "referenceId": "contact", "body": { "LastName": "Harrison", "AccountId": "@{acct.id}" } }
+    ]
+  }
+  ```
+- sObject Tree (nested create): `POST /composite/tree/Account` with `records` array containing `attributes.type` and `attributes.referenceId` to create Account + child Contacts in one call.
+- Composite batch: `POST /composite/batch` for multiple unrelated requests.
+
+## Implementation Tips (NextEdge)
+- Always read `instance_url` from the token exchange; never hardcode domain.
+- Build URLs with `SALESFORCE_API_VERSION` env.
+- Before create: SOQL lookup (Contact by Email, Account by Name, Lead by Email+Company) to reduce duplicates.
+- Scopes: `api refresh_token web openid`.
+- Handle token expiry (401/403) by refreshing; log Salesforce `errors` array for diagnostics.
+- For custom fields use `FieldName__c`; verify via `/describe` when dynamically mapping.

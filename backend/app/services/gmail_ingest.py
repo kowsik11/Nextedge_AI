@@ -53,6 +53,13 @@ class GmailIngestor:
   def __init__(self):
     self.credentials: Dict[str, Credentials] = {}
 
+  def fetch_message(self, user_id: str, message_id: str) -> GmailMessage:
+    service = self._service(user_id)
+    full = self._fetch_message_detail(service, message_id)
+    if not full:
+      raise RuntimeError("Message not found")
+    return full
+
   def poll(
     self,
     user_id: str,

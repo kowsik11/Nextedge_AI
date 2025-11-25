@@ -18,10 +18,25 @@ backend/tokens.json
 backend/gmail_tokens.json
 backend/hubspot_tokens.json
 backend/zoho_tokens.json
+backend/salesforce_tokens.json
 backend/*token_store.json
 backend/*tokens.json
 backend/*_tokens.json
 backend/*token*.json
+
+# Credentials and sensitive files
+*credentials*.json
+*secret*.json
+*.pem
+*.key
+*.p12
+*.pfx
+*api_key*
+*apikey*
+*.cert
+backend/credentials/
+backend/secrets/
+backend/certs/
 
 # Virtual environments & caches
 .venv

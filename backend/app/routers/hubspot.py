@@ -453,7 +453,6 @@ def _ensure_order_property_group(user_id: str) -> None:
       return
     raise
 
-
 class CmsBlogPostTestRequest(BaseModel):
   user_id: str | None = None
 

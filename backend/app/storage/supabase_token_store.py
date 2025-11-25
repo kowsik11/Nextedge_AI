@@ -89,3 +89,4 @@ class SupabaseTokenStore:
 
 gmail_token_store = SupabaseTokenStore("gmail")
 hubspot_token_store = SupabaseTokenStore("hubspot")
+salesforce_token_store = SupabaseTokenStore("salesforce")

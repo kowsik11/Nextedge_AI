@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import re
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -39,15 +41,24 @@ class HubSpotClient:
   def _headers(self, token: str) -> Dict[str, str]:
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
+  def _search_contact(self, token: str, email: str) -> Optional[Dict[str, Any]]:
+    if not email:
+      return None
+    body = {
+      "filterGroups": [{"filters": [{"value": email, "propertyName": "email", "operator": "EQ"}]}],
+      "limit": 1,
+    }
+    response = self._request("post", "/crm/v3/objects/contacts/search", token, json=body, allow_404=True)
+    results = (response or {}).get("results") if response else None
+    return results[0] if results else None
+
   def _upsert_contact(self, token: str, contact_plan) -> str:
-    existing = None
-    if contact_plan.email:
-      existing = self._search_contact(token, contact_plan.email)
+    existing = self._search_contact(token, contact_plan.email) if contact_plan.email else None
 
     payload = {
       "properties": {
-        "firstname": contact_plan.full_name.split(" ")[0],
-        "lastname": contact_plan.full_name.split(" ")[-1],
+        "firstname": (contact_plan.full_name or "Unknown").split(" ")[0],
+        "lastname": (contact_plan.full_name or "Unknown").split(" ")[-1],
       }
     }
     if contact_plan.email:
@@ -63,17 +74,37 @@ class HubSpotClient:
       )
       return contact_id
 
-    response = self._request("post", "/crm/v3/objects/contacts", token, json=payload)
-    return response["id"]
+    try:
+      response = self._request("post", "/crm/v3/objects/contacts", token, json=payload)
+      return response["id"]
+    except HTTPException as exc:
+      # Handle 409 conflicts by extracting existing ID or re-searching
+      if exc.status_code == 409 and contact_plan.email:
+        existing_id = self._extract_existing_id_from_error(exc.detail)
+        if existing_id:
+          return existing_id
+        # fallback: search again
+        found = self._search_contact(token, contact_plan.email)
+        if found:
+          return found["id"]
+      raise
 
-  def _search_contact(self, token: str, email: str) -> Optional[Dict[str, Any]]:
-    body = {
-      "filterGroups": [{"filters": [{"value": email, "propertyName": "email", "operator": "EQ"}]}],
-      "limit": 1,
-    }
-    response = self._request("post", "/crm/v3/objects/contacts/search", token, json=body, allow_404=True)
-    results = (response or {}).get("results") if response else None
-    return results[0] if results else None
+  @staticmethod
+  def _extract_existing_id_from_error(detail: Any) -> Optional[str]:
+    """
+    Parse HubSpot conflict error messages like:
+    "Contact already exists. Existing ID: 328941372098"
+    """
+    if not detail:
+      return None
+    if isinstance(detail, dict):
+      message = detail.get("message", "")
+    else:
+      message = str(detail)
+    match = re.search(r"Existing ID:\\s*(\\d+)", message)
+    if match:
+      return match.group(1)
+    return None
 
   def _upsert_company(self, token: str, company_plan) -> str:
     existing = None
@@ -108,14 +139,30 @@ class HubSpotClient:
     self._request("put", path, token)
 
   def _create_note(self, token: str, contact_id: str, note_plan) -> str:
-    payload = {
-      "properties": {
-        "hs_note_title": note_plan.title,
-        "hs_note_body": note_plan.body,
-        "hs_timestamp": datetime.now(timezone.utc).isoformat(),
-      }
+    props = {
+      # HubSpot notes commonly accept hs_note_body + hs_timestamp; omit hs_note_title (not present in your portal)
+      "hs_note_body": note_plan.body or "(auto-generated note)",
+      "hs_timestamp": int(time.time() * 1000),
     }
-    response = self._request("post", "/crm/v3/objects/notes", token, json=payload)
+
+    def _send_note(properties: Dict[str, Any]) -> Dict[str, Any]:
+      return self._request("post", "/crm/v3/objects/notes", token, json={"properties": properties})
+
+    try:
+      response = _send_note(props)
+    except HTTPException as exc:
+      detail = exc.detail if isinstance(exc.detail, dict) else {}
+      missing = detail.get("context", {}).get("properties", []) if isinstance(detail, dict) else []
+      if exc.status_code in (400, 422) and missing:
+        # Patch missing required fields and retry once
+        if "hs_timestamp" in missing:
+          props["hs_timestamp"] = int(time.time() * 1000)
+        if "hs_note_body" in missing:
+          props["hs_note_body"] = props.get("hs_note_body") or "(auto-generated note)"
+        response = _send_note(props)
+      else:
+        raise
+
     note_id = response["id"]
     assoc_path = f"/crm/v3/objects/notes/{note_id}/associations/contacts/{contact_id}/note_to_contact"
     self._request("put", assoc_path, token)
@@ -494,6 +541,80 @@ class HubSpotClient:
         detail=f"HubSpot returned an empty response when creating {object_type} property.",
       )
     return response
+
+  def execute_enhanced_plan(self, user_id: str, plan) -> Dict[str, Any]:
+    token = get_hubspot_token(user_id)["access_token"]
+    result: Dict[str, Any] = {}
+
+    if plan.contact:
+      result["contact_id"] = self._upsert_contact(token, plan.contact)
+
+    if plan.company:
+      company_payload = {"properties": {"name": plan.company.name}}
+      if plan.company.domain:
+        company_payload["properties"]["domain"] = plan.company.domain
+      created = self._request("post", "/crm/v3/objects/companies", token, json=company_payload)
+      result["company_id"] = created.get("id")
+
+    if getattr(plan, "deal", None):
+      deal_payload = {
+        "properties": {
+          "dealname": plan.deal.dealname,
+          "pipeline": plan.deal.pipeline,
+          "dealstage": plan.deal.dealstage,
+        }
+      }
+      if plan.deal.amount:
+        deal_payload["properties"]["amount"] = plan.deal.amount
+      if plan.deal.closedate:
+        deal_payload["properties"]["closedate"] = plan.deal.closedate
+      created = self._request("post", "/crm/v3/objects/deals", token, json=deal_payload)
+      result["deal_id"] = created.get("id")
+
+    if getattr(plan, "ticket", None):
+      ticket_payload = {
+        "properties": {
+          "subject": plan.ticket.subject,
+          "content": plan.ticket.content,
+          "hs_ticket_priority": plan.ticket.priority,
+          "hs_pipeline": plan.ticket.pipeline,
+          "hs_pipeline_stage": plan.ticket.pipeline_stage,
+        }
+      }
+      created = self._request("post", "/crm/v3/objects/tickets", token, json=ticket_payload)
+      result["ticket_id"] = created.get("id")
+
+    if getattr(plan, "order", None):
+      order_payload = {"properties": {}}
+      if plan.order.reference:
+        order_payload["properties"]["order_number"] = plan.order.reference
+      if plan.order.amount:
+        order_payload["properties"]["amount"] = plan.order.amount
+      if plan.order.status:
+        order_payload["properties"]["status"] = plan.order.status
+      created = self._request("post", "/crm/v3/objects/orders", token, json=order_payload)
+      result["order_id"] = created.get("id")
+
+    if getattr(plan, "note", None):
+      # Create note and associate to any created objects (contact first, then others)
+      note_id = self._create_note(token, result.get("contact_id"), plan.note)
+      result["note_id"] = note_id
+      assoc_targets = [
+        ("companies", result.get("company_id"), "note_to_company"),
+        ("deals", result.get("deal_id"), "note_to_deal"),
+        ("tickets", result.get("ticket_id"), "note_to_ticket"),
+        ("orders", result.get("order_id"), "note_to_order"),
+      ]
+      for obj_type, obj_id, assoc_label in assoc_targets:
+        if not obj_id or not note_id:
+          continue
+        path = f"/crm/v3/objects/notes/{note_id}/associations/{obj_type}/{obj_id}/{assoc_label}"
+        try:
+          self._request("put", path, token)
+        except Exception:
+          continue
+
+    return result
 
   def create_property_group(self, user_id: str, object_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     token = get_hubspot_token(user_id)["access_token"]

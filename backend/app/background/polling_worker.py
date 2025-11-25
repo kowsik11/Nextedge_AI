@@ -31,12 +31,44 @@ async def fetch_unread_messages(access_token: str, q: str | None = None) -> List
 
 
 async def fetch_message_detail(token: str, msg_id: str) -> Dict[str, Any]:
+  """Fetch full email message including body for AI analysis."""
   headers = {"Authorization": f"Bearer {token}"}
-  url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{msg_id}?format=metadata"
+  # Use format=full to get complete email body
+  url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{msg_id}?format=full"
   async with httpx.AsyncClient(timeout=20) as client:
     res = await client.get(url, headers=headers)
   res.raise_for_status()
   return res.json()
+
+
+def extract_email_body(payload: Dict[str, Any]) -> str:
+  """Extract text body from Gmail message payload."""
+  def decode_part(part):
+    if "data" in part.get("body", {}):
+      import base64
+      return base64.urlsafe_b64decode(part["body"]["data"]).decode("utf-8", errors="ignore")
+    return ""
+  
+  # Check if message has parts (multipart)
+  if "parts" in payload:
+    text_parts = []
+    for part in payload["parts"]:
+      mime_type = part.get("mimeType", "")
+      if mime_type == "text/plain":
+        text_parts.append(decode_part(part))
+      elif mime_type == "text/html" and not text_parts:
+        # Fallback to HTML if no plain text
+        text_parts.append(decode_part(part))
+      elif "parts" in part:
+        # Nested parts (multipart/alternative, etc.)
+        for subpart in part["parts"]:
+          if subpart.get("mimeType") == "text/plain":
+            text_parts.append(decode_part(subpart))
+    return "\n".join(text_parts)
+  else:
+    # Simple message (not multipart)
+    return decode_part(payload)
+
 
 
 def derive_flags(payload: Dict[str, Any]) -> Dict[str, bool]:
@@ -144,6 +176,10 @@ async def poll_gmail_for_user(user_id: str) -> Dict[str, Any]:
       headers = full.get("payload", {}).get("headers", [])
       subject = next((h["value"] for h in headers if h["name"].lower() == "subject"), "")
       sender = next((h["value"] for h in headers if h["name"].lower() == "from"), "")
+      
+      # Extract full email body for AI analysis
+      email_body = extract_email_body(full.get("payload", {}))
+      
       flags = derive_flags(full)
       status = "baseline" if not baseline_ready else "new"
       row = {
@@ -153,7 +189,7 @@ async def poll_gmail_for_user(user_id: str) -> Dict[str, Any]:
         "subject": subject,
         "sender": sender,
         "snippet": full.get("snippet"),
-        "preview": full.get("snippet"),
+        "preview": email_body or full.get("snippet"),  # Store full body in preview
         "status": status,
         "has_attachments": flags["has_attachments"],
         "has_images": flags["has_images"],
@@ -165,13 +201,13 @@ async def poll_gmail_for_user(user_id: str) -> Dict[str, Any]:
         "created_at": now_iso,
         "updated_at": now_iso,
       }
-      # client-side filter: only after baseline
+      # client-side filter: only after baseline (use < not <= to include emails at cutoff time)
       internal_date_ms = None
       try:
         internal_date_ms = int(full.get("internalDate"))
       except Exception:
         internal_date_ms = None
-      if cutoff_ms is not None and internal_date_ms is not None and internal_date_ms <= cutoff_ms:
+      if cutoff_ms is not None and internal_date_ms is not None and internal_date_ms < cutoff_ms:
         skipped += 1
         continue
       rows.append(row)

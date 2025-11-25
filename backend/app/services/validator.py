@@ -32,6 +32,7 @@ class ValidatedExtraction(BaseModel):
   next_steps: List[str] = Field(default_factory=list)
   summary: str
   evidence: str
+  routing_decision: Optional[dict] = None
 
 
 class ValidationService:

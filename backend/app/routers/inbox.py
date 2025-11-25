@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from ..auth import resolve_user_id
+from ..storage.message_store import message_store
 from ..services.supabase_client import get_supabase_client
 
 router = APIRouter(prefix="/api/inbox", tags=["inbox"])
@@ -22,17 +23,25 @@ def inbox_summary(request: Request, user_id: str | None = None):
 
   resp = supabase.table("gmail_messages").select("status, received_at").eq("user_id", resolved_user_id).execute()
   rows = resp.data if hasattr(resp, "data") else []
-  counts = {"new": 0, "processed": 0, "error": 0}
+  counts = {
+    "new": 0,
+    "processed": 0,
+    "error": 0,
+    "pending_ai_analysis": 0,
+    "ai_analyzed": 0,
+    "routed": 0,
+    "accepted": 0,
+    "rejected": 0,
+    "needs_review": 0,
+  }
   total = 0
   last_received = None
   for row in rows:
     total += 1
     status = (row.get("status") or "new").lower()
-    if status == "processed":
-      counts["processed"] += 1
-    elif status == "error":
-      counts["error"] += 1
-    else:  # treat baseline/new as new
+    if status in counts:
+      counts[status] += 1
+    else:  # treat unknown as new
       counts["new"] += 1
     ra = row.get("received_at")
     if ra and (last_received is None or ra > last_received):
@@ -59,7 +68,18 @@ def inbox_messages(
     raise HTTPException(status_code=401, detail="Missing authenticated user")
 
   status = status.lower()
-  valid = {"new", "processed", "error", "all"}
+  valid = {
+    "new",
+    "processed",
+    "error",
+    "pending_ai_analysis",
+    "ai_analyzed",
+    "routed",
+    "accepted",
+    "rejected",
+    "needs_review",
+    "all",
+  }
   if status not in valid:
     raise HTTPException(status_code=400, detail="Invalid status filter")
 
@@ -68,7 +88,9 @@ def inbox_messages(
 
   if status != "all":
     if status == "new":
-      query_builder = query_builder.in_("status", ["new", "baseline"])
+      query_builder = query_builder.in_("status", ["new", "baseline", "pending_ai_analysis"])
+    elif status == "pending_ai_analysis":
+      query_builder = query_builder.in_("status", ["pending_ai_analysis", "new", "baseline"])
     else:
       query_builder = query_builder.eq("status", status)
 

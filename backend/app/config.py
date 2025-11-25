@@ -30,6 +30,21 @@ class Settings(BaseSettings):
   hubspot_auth_base: AnyHttpUrl = Field("https://app.hubspot.com/oauth", alias="HUBSPOT_AUTH_BASE")
   hubspot_api_base: AnyHttpUrl = Field("https://api.hubapi.com", alias="HUBSPOT_API_BASE")
 
+  # Salesforce OAuth
+  salesforce_client_id: str = Field("", alias="SALESFORCE_CLIENT_ID")
+  salesforce_client_secret: str = Field("", alias="SALESFORCE_CLIENT_SECRET")
+  salesforce_redirect_uri: AnyHttpUrl = Field(
+    "http://localhost:8000/api/salesforce/callback", alias="SALESFORCE_REDIRECT_URI"
+  )
+  salesforce_auth_url: AnyHttpUrl = Field(
+    "https://login.salesforce.com/services/oauth2/authorize", alias="SALESFORCE_AUTH_URL"
+  )
+  salesforce_token_url: AnyHttpUrl = Field(
+    "https://login.salesforce.com/services/oauth2/token", alias="SALESFORCE_TOKEN_URL"
+  )
+  salesforce_api_version: str = Field("v61.0", alias="SALESFORCE_API_VERSION")
+  salesforce_scopes: str = Field("api refresh_token web openid", alias="SALESFORCE_SCOPES")
+
   supabase_url: AnyHttpUrl = Field(..., alias="SUPABASE_URL")
   supabase_anon_key: str = Field(..., alias="SUPABASE_ANON_KEY")
   supabase_service_role_key: str = Field(..., alias="SUPABASE_SERVICE_ROLE_KEY")
@@ -44,6 +59,10 @@ class Settings(BaseSettings):
   @property
   def gemini_api_keys(self) -> List[str]:
     return [key.strip() for key in self.gemini_api_keys_raw.replace(",", " ").split() if key.strip()]
+
+  @property
+  def salesforce_scope_list(self) -> List[str]:
+    return [scope.strip() for scope in self.salesforce_scopes.replace(",", " ").split() if scope.strip()]
 
   @property
   def supabase_keys_endpoint(self) -> AnyHttpUrl:
