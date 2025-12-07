@@ -36,6 +36,12 @@ type HubSpotStatus = {
   email?: string;
 };
 
+type SheetsStatus = {
+  status: string;
+  spreadsheet_name?: string;
+  last_sync_at?: string | null;
+};
+
 type SalesforceStatus = {
   connected: boolean;
   email?: string;
@@ -79,6 +85,7 @@ type InboxMessage = {
   hubspot_object_type?: string | null;
   salesforce_object_type?: string | null;
   salesforce_contact_id?: string | null;
+  synced_to_gsheets?: boolean | null;
   ai_summary?: string | null;
   error?: string | null;
 };
@@ -127,6 +134,10 @@ const Home = () => {
   );
   const [hubspotError, setHubspotError] = useState<string | null>(null);
   const [hubspotDisconnecting, setHubspotDisconnecting] = useState(false);
+  const [sheetsState, setSheetsState] = useState<ConnectionState>("connecting");
+  const [sheetsStatus, setSheetsStatus] = useState<SheetsStatus | null>(null);
+  const [sheetsError, setSheetsError] = useState<string | null>(null);
+  const [sheetsDisconnecting, setSheetsDisconnecting] = useState(false);
   const [salesforceState, setSalesforceState] =
     useState<ConnectionState>("connecting");
   const [salesforceStatus, setSalesforceStatus] =
@@ -156,10 +167,12 @@ const Home = () => {
   const [analyzing, setAnalyzing] = useState(false);
   const [accepting, setAccepting] = useState(false);
   const [routingSalesforce, setRoutingSalesforce] = useState(false);
+  const [sheetsSyncingId, setSheetsSyncingId] = useState<string | null>(null);
+  const [sheetsSynced, setSheetsSynced] = useState<Record<string, boolean>>({});
   const [autoSynced, setAutoSynced] = useState(false);
 
   const bannerParam = searchParams.get("connected");
-  const showBanner = bannerParam === "google" || bannerParam === "hubspot" || bannerParam === "salesforce";
+  const showBanner = bannerParam === "google" || bannerParam === "hubspot" || bannerParam === "salesforce" || bannerParam === "sheets";
   const buildHeaders = useCallback(
     (extra: HeadersInit = {}) => ({
       ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
@@ -217,6 +230,24 @@ const Home = () => {
     }
   }, [buildHeaders, userId]);
 
+  const fetchSheetsStatus = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const res = await fetch(`/api/google-sheets/status?user_id=${encodeURIComponent(userId)}`, {
+        headers: buildHeaders(),
+      });
+      if (!res.ok) throw new Error(`Status request failed: ${res.status}`);
+      const payload = (await res.json()) as SheetsStatus | { status: string };
+      setSheetsStatus(payload as SheetsStatus);
+      setSheetsState(payload.status && payload.status !== "disconnected" ? "connected" : "disconnected");
+      setSheetsError(null);
+    } catch (error) {
+      console.error(error);
+      setSheetsError("Unable to load Google Sheets status.");
+      setSheetsState("disconnected");
+    }
+  }, [buildHeaders, userId]);
+
   const fetchSalesforceStatus = useCallback(async () => {
     if (!userId) return;
     try {
@@ -270,9 +301,10 @@ const Home = () => {
     if (userId) {
       fetchGmailStatus();
       fetchHubSpotStatus();
+      fetchSheetsStatus();
       fetchSalesforceStatus();
     }
-  }, [fetchGmailStatus, fetchHubSpotStatus, fetchSalesforceStatus, userId]);
+  }, [fetchGmailStatus, fetchHubSpotStatus, fetchSheetsStatus, fetchSalesforceStatus, userId]);
 
   useEffect(() => {
     setAutoSynced(false);
@@ -325,6 +357,20 @@ const Home = () => {
     return () => window.clearTimeout(handle);
   }, [searchTerm]);
 
+  // Ensure a message is selected when messages load/change
+  useEffect(() => {
+    if (!messages.length) {
+      setSelectedMessage(null);
+      return;
+    }
+    const stillExists = selectedMessage && messages.find((m) => m.id === selectedMessage.id);
+    if (!stillExists) {
+      setSelectedMessage(messages[0]);
+    }
+  }, [messages, selectedMessage, filter]);
+
+  const activeMessage = selectedMessage ?? (messages.length ? messages[0] : null);
+
   useEffect(() => {
     if (!showInbox || !userId) return;
     // When opening the inbox preview, hide the live feed drawer.
@@ -346,15 +392,8 @@ const Home = () => {
       .then((payload) => {
         if (!active) return;
         setMessages(payload);
-        setSelectedMessage((previous) => {
-          if (!payload.length) return null;
-          if (previous) {
-            const stillExists = payload.find((item) => item.id === previous.id);
-            if (stillExists) return stillExists;
-          }
-                  return payload[0];
-                });
-              })
+        setSelectedMessage(payload[0] ?? null);
+      })
       .catch((error) => {
         console.error(error);
         if (active) {
@@ -393,24 +432,24 @@ const Home = () => {
       setSelectedMessage((prev) =>
         prev && prev.id === selectedMessage.id
           ? {
-              ...prev,
-              ai_routing_decision: payload.routing,
-              ai_confidence: payload.routing?.confidence ?? prev.ai_confidence,
-              ai_summary: payload.ai_summary ?? prev.ai_summary,
-              status: "pending_ai_analysis",
-            }
+            ...prev,
+            ai_routing_decision: payload.routing,
+            ai_confidence: payload.routing?.confidence ?? prev.ai_confidence,
+            ai_summary: payload.ai_summary ?? prev.ai_summary,
+            status: "pending_ai_analysis",
+          }
           : prev
       );
       setMessages((prev) =>
         prev.map((m) =>
           m.id === selectedMessage.id
             ? {
-                ...m,
-                ai_routing_decision: payload.routing,
-                ai_confidence: payload.routing?.confidence ?? m.ai_confidence,
-                ai_summary: payload.ai_summary ?? m.ai_summary,
-                status: "pending_ai_analysis",
-              }
+              ...m,
+              ai_routing_decision: payload.routing,
+              ai_confidence: payload.routing?.confidence ?? m.ai_confidence,
+              ai_summary: payload.ai_summary ?? m.ai_summary,
+              status: "pending_ai_analysis",
+            }
             : m
         )
       );
@@ -444,24 +483,24 @@ const Home = () => {
       setSelectedMessage((prev) =>
         prev && prev.id === selectedMessage.id
           ? {
-              ...prev,
-              ai_routing_decision: payload.routing,
-              ai_confidence: payload.routing?.confidence ?? prev.ai_confidence,
-              ai_summary: payload.ai_summary ?? prev.ai_summary,
-              status: "ai_analyzed",
-            }
+            ...prev,
+            ai_routing_decision: payload.routing,
+            ai_confidence: payload.routing?.confidence ?? prev.ai_confidence,
+            ai_summary: payload.ai_summary ?? prev.ai_summary,
+            status: "ai_analyzed",
+          }
           : prev
       );
       setMessages((prev) =>
         prev.map((m) =>
           m.id === selectedMessage.id
             ? {
-                ...m,
-                ai_routing_decision: payload.routing,
-                ai_confidence: payload.routing?.confidence ?? m.ai_confidence,
-                ai_summary: payload.ai_summary ?? m.ai_summary,
-                status: "ai_analyzed",
-              }
+              ...m,
+              ai_routing_decision: payload.routing,
+              ai_confidence: payload.routing?.confidence ?? m.ai_confidence,
+              ai_summary: payload.ai_summary ?? m.ai_summary,
+              status: "ai_analyzed",
+            }
             : m
         )
       );
@@ -494,24 +533,24 @@ const Home = () => {
       setSelectedMessage((prev) =>
         prev && prev.id === selectedMessage.id
           ? {
-              ...prev,
-              salesforce_object_type: "contacts",
-              salesforce_contact_id: payload.contact_id || prev.salesforce_contact_id,
-              crm_record_url: payload.crm_record_url || prev.crm_record_url,
-              status: "routed",
-            }
+            ...prev,
+            salesforce_object_type: "contacts",
+            salesforce_contact_id: payload.contact_id || prev.salesforce_contact_id,
+            crm_record_url: payload.crm_record_url || prev.crm_record_url,
+            status: "routed",
+          }
           : prev
       );
       setMessages((prev) =>
         prev.map((m) =>
           m.id === selectedMessage.id
             ? {
-                ...m,
-                salesforce_object_type: "contacts",
-                salesforce_contact_id: payload.contact_id || m.salesforce_contact_id,
-                crm_record_url: payload.crm_record_url || m.crm_record_url,
-                status: "routed",
-              }
+              ...m,
+              salesforce_object_type: "contacts",
+              salesforce_contact_id: payload.contact_id || m.salesforce_contact_id,
+              crm_record_url: payload.crm_record_url || m.crm_record_url,
+              status: "routed",
+            }
             : m
         )
       );
@@ -520,6 +559,52 @@ const Home = () => {
       setMessagesError("Salesforce route failed.");
     } finally {
       setRoutingSalesforce(false);
+    }
+  };
+
+  const sendToSheets = async () => {
+    if (!selectedMessage || !userId) return;
+    const targetId = selectedMessage.id;
+    setSheetsSyncingId(targetId);
+    try {
+      const res = await fetch("/api/google-sheets/sync-email", {
+        method: "POST",
+        headers: buildHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          user_id: userId,
+          email_id: targetId,
+        }),
+      });
+      if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(detail || "Sheets sync failed");
+      }
+      const payload = await res.json();
+      setSheetsSynced((prev) => ({ ...prev, [targetId]: true }));
+      setSelectedMessage((prev) =>
+        prev && prev.id === targetId
+          ? {
+            ...prev,
+            synced_to_gsheets: true,
+            crm_record_url: prev.crm_record_url,
+          }
+          : prev
+      );
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === targetId
+            ? { ...m, synced_to_gsheets: true }
+            : m
+        )
+      );
+      if (payload?.spreadsheet_url) {
+        setSyncMessage(`Synced to Sheets row ${payload.row_number || ""}`);
+      }
+    } catch (error) {
+      console.error(error);
+      setMessagesError("Google Sheets sync failed.");
+    } finally {
+      setSheetsSyncingId(null);
     }
   };
 
@@ -583,7 +668,7 @@ const Home = () => {
   const baselineReady = gmailStatus.baseline_ready ?? true;
   const canProceed =
     gmailState === "connected" &&
-    (hubspotState === "connected" || salesforceState === "connected");
+    (hubspotState === "connected" || salesforceState === "connected" || sheetsState === "connected");
 
   const handleConnectGmail = () => {
     if (!userId) return;
@@ -636,6 +721,45 @@ const Home = () => {
       console.error(error);
     } finally {
       setHubspotDisconnecting(false);
+    }
+  };
+
+  const handleConnectSheets = async () => {
+    if (!userId) return;
+    setSheetsState("connecting");
+    try {
+      const res = await fetch(`/api/google-sheets/auth?user_id=${encodeURIComponent(userId)}`, {
+        headers: buildHeaders(),
+      });
+      if (!res.ok) throw new Error("Sheets auth init failed");
+      const payload = await res.json();
+      if (payload?.auth_url) {
+        window.location.href = payload.auth_url;
+      } else {
+        throw new Error("Missing auth_url");
+      }
+    } catch (error) {
+      console.error(error);
+      setSheetsError("Unable to start Google Sheets connect.");
+      setSheetsState("disconnected");
+    }
+  };
+
+  const handleDisconnectSheets = async () => {
+    if (!userId) return;
+    setSheetsDisconnecting(true);
+    try {
+      const res = await fetch(`/api/google-sheets/disconnect?user_id=${encodeURIComponent(userId)}`, {
+        method: "POST",
+        headers: buildHeaders({ "Content-Type": "application/json" }),
+      });
+      if (!res.ok) throw new Error("Disconnect failed");
+      await fetchSheetsStatus();
+      setSheetsState("disconnected");
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setSheetsDisconnecting(false);
     }
   };
 
@@ -699,23 +823,29 @@ const Home = () => {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ user_id: uid }),
-        }).catch(() => {});
+        }).catch(() => { });
         await fetch("/api/hubspot/disconnect", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ user_id: uid }),
-        }).catch(() => {});
+        }).catch(() => { });
+        await fetch("/api/google-sheets/disconnect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: uid }),
+        }).catch(() => { });
         await fetch("/api/salesforce/disconnect", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ user_id: uid }),
-        }).catch(() => {});
+        }).catch(() => { });
       }
     } finally {
       await signOut();
       // Reset local UI state
       setGmailState("disconnected");
       setHubspotState("disconnected");
+      setSheetsState("disconnected");
       setSalesforceState("disconnected");
       setGmailStatus({
         connected: false,
@@ -733,6 +863,7 @@ const Home = () => {
         baseline_ready: false,
       });
       setHubspotStatus(null);
+      setSheetsStatus(null);
       setSalesforceStatus(null);
       setShowInbox(false);
       setShowInsights(false);
@@ -761,6 +892,10 @@ const Home = () => {
     connected: false,
     email: "",
   };
+  const sheetsCardStatus = sheetsStatus ?? {
+    status: "disconnected",
+    spreadsheet_name: "",
+  };
   const salesforceCardStatus = salesforceStatus ?? {
     connected: false,
     instance_url: "",
@@ -785,7 +920,7 @@ const Home = () => {
           </div>
         )}
 
-        <div className="grid gap-6 md:grid-cols-3">
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
           <ConnectionCard
             title="Connect Gmail"
             description={
@@ -798,11 +933,11 @@ const Home = () => {
             detail={
               gmailStatus.baseline_at
                 ? `Watching new mail since ${formatRelativeTime(
-                    gmailStatus.baseline_at
-                  )}`
+                  gmailStatus.baseline_at
+                )}`
                 : gmailStatus.last_checked_at
-                ? `Last sync ${formatRelativeTime(gmailStatus.last_checked_at)}`
-                : undefined
+                  ? `Last sync ${formatRelativeTime(gmailStatus.last_checked_at)}`
+                  : undefined
             }
             onDisconnect={
               gmailStatus.connected ? handleDisconnectGmail : undefined
@@ -822,6 +957,28 @@ const Home = () => {
             error={hubspotError || undefined}
             onDisconnect={hubspotCardStatus.connected ? handleDisconnectHubSpot : undefined}
             disconnecting={hubspotDisconnecting}
+          />
+          <ConnectionCard
+            title="Connect Google Sheets"
+            description={
+              sheetsCardStatus.status !== "disconnected"
+                ? sheetsCardStatus.spreadsheet_name
+                  ? `Using ${sheetsCardStatus.spreadsheet_name}`
+                  : "Connected. Select a spreadsheet."
+                : "Authorize Google Sheets to sync records."
+            }
+            state={sheetsState}
+            onConnect={handleConnectSheets}
+            detail={
+              sheetsCardStatus.status !== "disconnected"
+                ? sheetsCardStatus.last_sync_at
+                  ? `Last sync ${formatRelativeTime(sheetsCardStatus.last_sync_at)}`
+                  : "Ready"
+                : undefined
+            }
+            error={sheetsError || undefined}
+            onDisconnect={sheetsState === "connected" ? handleDisconnectSheets : undefined}
+            disconnecting={sheetsDisconnecting}
           />
           <ConnectionCard
             title="Connect Salesforce"
@@ -963,7 +1120,7 @@ const Home = () => {
       )}
 
       {showInbox && (
-        <div className="fixed inset-y-0 left-0 z-40 w-full max-w-5xl border-r border-border bg-background shadow-2xl">
+        <div className="fixed inset-0 z-40 bg-background">
           <div className="flex h-full flex-col p-6 overflow-hidden">
             <div className="flex items-center justify-between gap-4">
               <div>
@@ -997,8 +1154,6 @@ const Home = () => {
                     "routed",
                     "accepted",
                     "rejected",
-                    "processed",
-                    "error",
                   ] as InboxFilter[]
                 ).map((item) => (
                   <Button
@@ -1020,8 +1175,8 @@ const Home = () => {
               </div>
             </div>
 
-            <div className="mt-6 grid flex-1 gap-6 overflow-hidden lg:grid-cols-[1.2fr,0.8fr]">
-              <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-card/60">
+            <div className="mt-6 grid flex-1 gap-4 overflow-hidden" style={{ gridTemplateColumns: '1.2fr 0.8fr' }}>
+              <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-card/60" style={{ minWidth: 0 }}>
                 <div className="flex items-center gap-2 border-b border-border px-4 py-3 text-sm text-muted-foreground">
                   <Inbox className="h-4 w-4" />
                   <span>{messages.length} conversations</span>
@@ -1044,8 +1199,8 @@ const Home = () => {
                         key={message.id}
                         className={cn(
                           "w-full rounded-xl border border-transparent bg-background/80 p-4 text-left transition hover:border-primary/40 hover:bg-primary/5",
-                          selectedMessage?.id === message.id &&
-                            "border-primary bg-primary/5"
+                          activeMessage?.id === message.id &&
+                          "border-primary bg-primary/5"
                         )}
                         onClick={() => setSelectedMessage(message)}
                       >
@@ -1082,27 +1237,45 @@ const Home = () => {
                 </div>
               </div>
 
-              <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-card/60 p-4">
-                {selectedMessage ? (
+              <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-card/60 p-4" style={{ minWidth: 0 }}>
+                {activeMessage ? (
                   <>
                     <div className="flex items-center justify-between gap-2">
-                      <Badge variant="secondary" className="uppercase">
-                        {selectedMessage.status}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="uppercase">
+                          {activeMessage.status}
+                        </Badge>
+                        {sheetsState === "connected" && (
+                          <Badge
+                            variant={
+                              activeMessage.synced_to_gsheets ||
+                                sheetsSynced[activeMessage.id]
+                                ? "secondary"
+                                : "outline"
+                            }
+                            className="uppercase"
+                          >
+                            {activeMessage.synced_to_gsheets ||
+                              sheetsSynced[activeMessage.id]
+                              ? "Sheets synced"
+                              : "Sheets ready"}
+                          </Badge>
+                        )}
+                      </div>
                       <span className="text-xs text-muted-foreground">
                         Updated{" "}
                         {formatRelativeTime(
-                          selectedMessage.updated_at ||
-                            selectedMessage.created_at
+                          activeMessage.updated_at ||
+                          activeMessage.created_at
                         )}
                       </span>
                     </div>
                     <div className="mt-4 space-y-1">
                       <p className="text-lg font-semibold text-foreground">
-                        {selectedMessage.subject}
+                        {activeMessage.subject}
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        {selectedMessage.sender || "Unknown sender"}
+                        {activeMessage.sender || "Unknown sender"}
                       </p>
                     </div>
                     <div className="mt-4 flex-1 overflow-y-auto rounded-lg bg-background/60 p-4">
@@ -1112,76 +1285,74 @@ const Home = () => {
                             Email preview
                           </p>
                           <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
-                            {selectedMessage.preview ||
-                              selectedMessage.snippet ||
+                            {activeMessage.preview ||
+                              activeMessage.snippet ||
                               "No preview available yet."}
                           </p>
                         </div>
-                        {selectedMessage.ai_summary && (
+                        {activeMessage.ai_summary && (
                           <div className="rounded-lg border border-border bg-background/70 p-3">
                             <p className="text-xs font-semibold uppercase text-muted-foreground">
                               AI summary
                             </p>
                             <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-                              {selectedMessage.ai_summary}
+                              {activeMessage.ai_summary}
                             </p>
                           </div>
                         )}
                       </div>
-                      {selectedMessage.error && (
+                      {activeMessage.error && (
                         <p className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-                          {selectedMessage.error}
+                          {activeMessage.error}
                         </p>
                       )}
-                      {filter === "pending_ai_analysis" && (
+                      {(filter === "pending_ai_analysis" || filter === "ai_analyzed") && (
                         <div className="mt-4 rounded-lg border border-border bg-card/70 p-3 space-y-2">
                           <p className="text-xs font-semibold uppercase text-muted-foreground">
                             AI Analysis
                           </p>
-                          {selectedMessage.ai_routing_decision ? (
+                          {activeMessage.ai_routing_decision ? (
                             <>
                               <p className="text-sm text-foreground">
                                 Object:{" "}
                                 <strong>
-                                  {selectedMessage.hubspot_object_type ||
-                                    selectedMessage.ai_routing_decision
+                                  {activeMessage.hubspot_object_type ||
+                                    activeMessage.ai_routing_decision
                                       ?.primary_object ||
                                     "N/A"}
                                 </strong>
                               </p>
                               <p className="text-sm text-muted-foreground">
                                 Confidence:{" "}
-                                {Math.round(
-                                  (selectedMessage.ai_confidence || 0) * 100
-                                )}
+                                {Math.round((activeMessage.ai_confidence || 0) * 100)}
                                 %
                               </p>
                               <p className="text-sm text-muted-foreground">
                                 Intent:{" "}
-                                {selectedMessage.ai_routing_decision.intent ||
+                                {activeMessage.ai_routing_decision.intent ||
                                   "N/A"}
                               </p>
                               <p className="text-sm text-muted-foreground">
                                 Reasoning:{" "}
-                                {selectedMessage.ai_routing_decision.reasoning ||
+                                {activeMessage.ai_routing_decision.reasoning ||
                                   "N/A"}
                               </p>
-                              {(selectedMessage.salesforce_object_type ||
-                                selectedMessage.hubspot_object_type) && (
-                                <p className="text-sm text-muted-foreground">
-                                  CRM targets:{" "}
-                                  {[
-                                    selectedMessage.hubspot_object_type
-                                      ? `HubSpot (${selectedMessage.hubspot_object_type})`
-                                      : null,
-                                    selectedMessage.salesforce_object_type
-                                      ? `Salesforce (${selectedMessage.salesforce_object_type})`
-                                      : null,
-                                  ]
-                                    .filter(Boolean)
-                                    .join(" • ")}
-                                </p>
-                              )}
+                              {(activeMessage.salesforce_object_type ||
+                                activeMessage.hubspot_object_type) && (
+                                  <p className="text-sm text-muted-foreground">
+                                    CRM targets:{" "}
+                                    {[
+                                      activeMessage.hubspot_object_type
+                                        ? `HubSpot (${activeMessage.hubspot_object_type})`
+                                        : null,
+                                      activeMessage.salesforce_object_type
+                                        ? `Salesforce (${activeMessage.salesforce_object_type})`
+                                        : null,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" • ")}
+                                  </p>
+                                )}
                             </>
                           ) : (
                             <p className="text-sm text-muted-foreground">
@@ -1247,6 +1418,25 @@ const Home = () => {
                             <Button
                               variant="outline"
                               size="sm"
+                              disabled={
+                                analyzing ||
+                                sheetsState !== "connected" ||
+                                sheetsSyncingId === selectedMessage.id
+                              }
+                              onClick={() => sendToSheets()}
+                            >
+                              {sheetsSyncingId === selectedMessage.id ? (
+                                <>
+                                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                                  Sending to Sheets...
+                                </>
+                              ) : (
+                                "Send to Sheets"
+                              )}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
                               disabled={analyzing}
                               onClick={rejectSelected}
                             >
@@ -1282,11 +1472,35 @@ const Home = () => {
                     </div>
                   </>
                 ) : (
-                  <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground">
+                  <div className="flex h-full flex-col items-center justify-center rounded-2xl border border-border bg-card/60 p-6 text-center text-muted-foreground">
                     <Mail className="mb-4 h-8 w-8 text-muted-foreground" />
-                    <p className="text-sm">
-                      Select a message to view the enriched preview.
+                    <p className="text-sm font-medium text-foreground">Select a message to view the enriched preview.</p>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      AI Analysis, HubSpot/Salesforce/Sheets actions will appear here once an email is selected.
                     </p>
+                    <div className="mt-4 w-full max-w-xs space-y-2 text-left">
+                      <div className="rounded-lg border border-border bg-background/80 p-3">
+                        <p className="text-xs font-semibold uppercase text-muted-foreground">AI Analysis</p>
+                        <p className="mt-1 text-xs text-muted-foreground">Run AI to classify, summarize, then route.</p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button variant="hero-outline" size="sm" disabled>
+                            Analyze with AI
+                          </Button>
+                          <Button variant="hero" size="sm" disabled>
+                            Accept &amp; send to HubSpot
+                          </Button>
+                          <Button variant="hero-outline" size="sm" disabled>
+                            Send to Salesforce
+                          </Button>
+                          <Button variant="outline" size="sm" disabled>
+                            Send to Sheets
+                          </Button>
+                          <Button variant="outline" size="sm" disabled>
+                            Reject
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1373,8 +1587,8 @@ const ConnectionCard = ({
           {isConnecting
             ? "Connecting"
             : isConnected
-            ? "Connected"
-            : "Not Connected"}
+              ? "Connected"
+              : "Not Connected"}
         </Badge>
       </div>
       <div className="mt-4 flex items-center justify-between">

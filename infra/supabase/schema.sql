@@ -242,6 +242,151 @@ CREATE TABLE IF NOT EXISTS public.oauth_connections (
 
 CREATE INDEX IF NOT EXISTS oauth_connections_provider_idx ON public.oauth_connections (provider);
 
+-- ================================================================
+-- GOOGLE SHEETS INTEGRATION
+-- ================================================================
+
+-- Create workspaces table (if not exists)
+CREATE TABLE IF NOT EXISTS workspaces (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    owner_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    settings JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    CONSTRAINT unique_workspace_name_per_owner UNIQUE(owner_id, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_workspaces_owner ON workspaces(owner_id);
+
+-- Enable RLS for workspaces
+ALTER TABLE workspaces ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view their own workspaces" ON workspaces FOR SELECT USING (owner_id = auth.uid());
+CREATE POLICY "Users can create their own workspaces" ON workspaces FOR INSERT WITH CHECK (owner_id = auth.uid());
+CREATE POLICY "Users can update their own workspaces" ON workspaces FOR UPDATE USING (owner_id = auth.uid());
+CREATE POLICY "Users can delete their own workspaces" ON workspaces FOR DELETE USING (owner_id = auth.uid());
+
+-- Create emails table (if not exists)
+CREATE TABLE IF NOT EXISTS emails (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
+    message_id TEXT NOT NULL UNIQUE,
+    thread_id TEXT,
+    subject TEXT,
+    sender_email TEXT,
+    sender_name TEXT,
+    recipients JSONB DEFAULT '[]'::jsonb,
+    body_text TEXT,
+    body_html TEXT,
+    snippet TEXT,
+    received_at TIMESTAMP WITH TIME ZONE,
+    has_attachments BOOLEAN DEFAULT FALSE,
+    labels TEXT[] DEFAULT '{}',
+    processing_status TEXT DEFAULT 'new' CHECK (processing_status IN ('new', 'processing', 'processed', 'error')),
+    synced_to_salesforce BOOLEAN DEFAULT FALSE,
+    synced_to_hubspot BOOLEAN DEFAULT FALSE,
+    synced_to_gsheets BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_emails_workspace ON emails(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_emails_message_id ON emails(message_id);
+CREATE INDEX IF NOT EXISTS idx_emails_gsheet_sync ON emails(synced_to_gsheets);
+
+ALTER TABLE emails ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view their workspace emails" ON emails FOR SELECT USING (workspace_id IN (SELECT id FROM workspaces WHERE owner_id = auth.uid()));
+CREATE POLICY "Users can insert emails in their workspace" ON emails FOR INSERT WITH CHECK (workspace_id IN (SELECT id FROM workspaces WHERE owner_id = auth.uid()));
+CREATE POLICY "Users can update their workspace emails" ON emails FOR UPDATE USING (workspace_id IN (SELECT id FROM workspaces WHERE owner_id = auth.uid()));
+
+-- Create ai_analysis table (if not exists)
+CREATE TABLE IF NOT EXISTS ai_analysis (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email_id UUID NOT NULL REFERENCES emails(id) ON DELETE CASCADE,
+    classification TEXT CHECK (classification IN ('Lead', 'Case', 'Contact', 'Opportunity', 'None')),
+    confidence_score NUMERIC(3, 2) CHECK (confidence_score >= 0 AND confidence_score <= 1),
+    urgency TEXT CHECK (urgency IN ('Low', 'Medium', 'High', 'Critical')),
+    sentiment TEXT CHECK (sentiment IN ('Positive', 'Neutral', 'Negative')),
+    intent TEXT,
+    entities JSONB DEFAULT '[]'::jsonb,
+    reasoning TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    CONSTRAINT unique_email_analysis UNIQUE(email_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_analysis_email ON ai_analysis(email_id);
+ALTER TABLE ai_analysis ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view AI analysis for their emails" ON ai_analysis FOR SELECT USING (email_id IN (SELECT id FROM emails WHERE workspace_id IN (SELECT id FROM workspaces WHERE owner_id = auth.uid())));
+CREATE POLICY "Users can insert AI analysis for their emails" ON ai_analysis FOR INSERT WITH CHECK (email_id IN (SELECT id FROM emails WHERE workspace_id IN (SELECT id FROM workspaces WHERE owner_id = auth.uid())));
+
+-- Create google_sheets_connections table
+CREATE TABLE IF NOT EXISTS google_sheets_connections (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    access_token TEXT NOT NULL,
+    refresh_token TEXT NOT NULL,
+    token_expires_at TIMESTAMP WITH TIME ZONE,
+    scopes TEXT[],
+    spreadsheet_id TEXT NOT NULL,
+    spreadsheet_name TEXT,
+    spreadsheet_url TEXT,
+    sync_mode TEXT DEFAULT 'manual' CHECK (sync_mode IN ('manual', 'automatic')),
+    target_sheet_name TEXT DEFAULT 'Emails',
+    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'expired', 'error', 'disconnected')),
+    last_sync_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    CONSTRAINT unique_workspace_sheet UNIQUE(workspace_id, spreadsheet_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_gsheets_workspace ON google_sheets_connections(workspace_id);
+ALTER TABLE google_sheets_connections ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view their workspace Google Sheets connections" ON google_sheets_connections FOR SELECT USING (workspace_id IN (SELECT id FROM workspaces WHERE owner_id = auth.uid()));
+CREATE POLICY "Users can insert Google Sheets connections for their workspace" ON google_sheets_connections FOR INSERT WITH CHECK (workspace_id IN (SELECT id FROM workspaces WHERE owner_id = auth.uid()));
+CREATE POLICY "Users can update their workspace Google Sheets connections" ON google_sheets_connections FOR UPDATE USING (workspace_id IN (SELECT id FROM workspaces WHERE owner_id = auth.uid()));
+CREATE POLICY "Users can delete their workspace Google Sheets connections" ON google_sheets_connections FOR DELETE USING (workspace_id IN (SELECT id FROM workspaces WHERE owner_id = auth.uid()));
+
+-- Create google_sheets_sync_log table
+CREATE TABLE IF NOT EXISTS google_sheets_sync_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    connection_id UUID NOT NULL REFERENCES google_sheets_connections(id) ON DELETE CASCADE,
+    -- email_id now references authentication.gmail_messages to match Sheets sync source
+    email_id UUID NOT NULL REFERENCES authentication.gmail_messages(id) ON DELETE CASCADE,
+    sheet_row_number INTEGER,
+    sync_status TEXT DEFAULT 'pending' CHECK (sync_status IN ('pending', 'success', 'failed', 'retrying')),
+    error_message TEXT,
+    classification_type TEXT CHECK (classification_type IN ('Lead', 'Case', 'Contact', 'Opportunity', 'Campaign', 'Deal', 'Order', 'Payment', 'Invoice', 'Quote', 'Task', 'Other')),
+    synced_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    CONSTRAINT unique_email_connection UNIQUE(connection_id, email_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_gsheets_log_email ON google_sheets_sync_log(email_id);
+ALTER TABLE google_sheets_sync_log ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view their workspace Google Sheets sync logs" ON google_sheets_sync_log FOR SELECT USING (connection_id IN (SELECT id FROM google_sheets_connections WHERE workspace_id IN (SELECT id FROM workspaces WHERE owner_id = auth.uid())));
+CREATE POLICY "Users can insert sync logs for their workspace" ON google_sheets_sync_log FOR INSERT WITH CHECK (connection_id IN (SELECT id FROM google_sheets_connections WHERE workspace_id IN (SELECT id FROM workspaces WHERE owner_id = auth.uid())));
+
+-- Triggers for automatic timestamp updates
+CREATE OR REPLACE FUNCTION update_updated_at_column() RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trigger_workspaces_updated_at ON workspaces;
+CREATE TRIGGER trigger_workspaces_updated_at BEFORE UPDATE ON workspaces FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trigger_emails_updated_at ON emails;
+CREATE TRIGGER trigger_emails_updated_at BEFORE UPDATE ON emails FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trigger_gsheets_connections_updated_at ON google_sheets_connections;
+CREATE TRIGGER trigger_gsheets_connections_updated_at BEFORE UPDATE ON google_sheets_connections FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- FINAL NOTES:
 -- 1) This SQL establishes authentication.gmail_messages as the source-of-truth table,
 --    exposes its columns via a public view (public.gmail_messages), and provides a

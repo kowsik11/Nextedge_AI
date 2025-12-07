@@ -9,10 +9,6 @@ from typing import Any, Dict
 from ..config import settings
 from ..storage.supabase_token_store import hubspot_token_store
 
-# Temporary debug to verify loaded scopes from .env
-print("Loaded HubSpot scopes:", settings.hubspot_scope)
-print("Loaded optional:", settings.hubspot_optional_scope)
-
 
 def build_auth_url(state: str) -> str:
   scope = urllib.parse.quote(settings.hubspot_scope)

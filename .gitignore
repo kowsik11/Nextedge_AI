@@ -38,8 +38,16 @@ backend/credentials/
 backend/secrets/
 backend/certs/
 
+# Local data and state files
+backend/state.json
+backend/inbox_messages.json
+backend/*.db
+backend/*.sqlite
+
 # Virtual environments & caches
 .venv
+venv
+env
 backend/.venv
 backend/.pytest_cache
 **/__pycache__

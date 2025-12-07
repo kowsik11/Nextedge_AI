@@ -50,6 +50,16 @@ class Settings(BaseSettings):
   supabase_service_role_key: str = Field(..., alias="SUPABASE_SERVICE_ROLE_KEY")
   supabase_jwks_url: AnyHttpUrl | None = Field(None, alias="SUPABASE_JWKS_URL")
 
+  # Google Sheets
+  google_sheets_client_id: str = Field(..., alias="GOOGLE_SHEETS_CLIENT_ID")
+  google_sheets_client_secret: str = Field(..., alias="GOOGLE_SHEETS_CLIENT_SECRET")
+  google_sheets_redirect_uri: AnyHttpUrl = Field(..., alias="GOOGLE_SHEETS_REDIRECT_URI")
+  google_sheets_scopes: List[str] = [
+      "https://www.googleapis.com/auth/spreadsheets",
+      "https://www.googleapis.com/auth/drive.file",
+      "https://www.googleapis.com/auth/gmail.readonly",
+  ]
+
   model_config = SettingsConfigDict(env_file=ENV_PATH, env_file_encoding="utf-8", extra="ignore")
 
   @property
